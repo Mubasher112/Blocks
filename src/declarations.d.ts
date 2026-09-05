@@ -42,6 +42,11 @@ declare module 'lucide-react-native' {
   export const Map: any;
   export const Lock: any;
   export const User: any;
+  export const UserPlus: any;
+  export const UserMinus: any;
+  export const Users: any;
+  export const Check: any;
+  export const Search: any;
   export const Volume2: any;
   export const VolumeX: any;
   export const Pause: any;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Play, Trophy, Flame, Grid, Map, User, Lock } from 'lucide-react-native';
+import { Play, Trophy, Flame, Grid, Map, User, Users, Lock } from 'lucide-react-native';
 import { GameStats } from '../game/GameEngine';
 import { PlayerProfile } from '../services/backend/AuthService';
 
@@ -10,6 +10,8 @@ interface MainMenuProps {
   onPlayClassic: () => void;
   onPlayAdventure: () => void;
   onOpenProfile: () => void;
+  onOpenLeaderboards: () => void;
+  onOpenSocial: () => void;
 }
 
 export const MainMenu: React.FC<MainMenuProps> = ({
@@ -18,11 +20,21 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onPlayClassic,
   onPlayAdventure,
   onOpenProfile,
+  onOpenLeaderboards,
+  onOpenSocial,
 }) => {
   return (
     <View style={styles.menuContainer}>
-      {/* Top Profile Entry Bar */}
-      <View style={styles.profileBar}>
+      {/* Top Bar with Profile, Leaderboards & Social Navigation */}
+      <View style={styles.topBar}>
+        <TouchableOpacity style={styles.iconChip} onPress={onOpenSocial} activeOpacity={0.8}>
+          <Users size={18} color="#FF007F" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.iconChip} onPress={onOpenLeaderboards} activeOpacity={0.8}>
+          <Trophy size={18} color="#FFB800" />
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.profileChip} onPress={onOpenProfile} activeOpacity={0.8}>
           <User size={18} color="#00F0FF" />
           <Text style={styles.profileNameText}>
@@ -112,10 +124,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
   },
-  profileBar: {
+  topBar: {
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: 8,
+  },
+  iconChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: 'rgba(22, 27, 46, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileChip: {
     flexDirection: 'row',
@@ -126,7 +149,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 16,
+    borderRadius: 14,
   },
   profileNameText: {
     color: '#f3f4f6',

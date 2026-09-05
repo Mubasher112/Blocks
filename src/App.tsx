@@ -34,13 +34,26 @@ import { LevelSuccessModal } from './components/adventure/LevelSuccessModal';
 import { LevelFailedModal } from './components/adventure/LevelFailedModal';
 import { ProfileModal } from './components/profile/ProfileModal';
 
+import { LeaderboardScreen } from './components/leaderboard/LeaderboardScreen';
+import { SocialScreen } from './components/social/SocialScreen';
+import { PublicProfileModal } from './components/social/PublicProfileModal';
+
 import { StorageService, DEFAULT_ADVENTURE_PROGRESS } from './services/Storage';
 import { AuthService, PlayerProfile } from './services/backend/AuthService';
 import { CloudSyncService } from './services/backend/CloudSyncService';
+import { ScoreService } from './services/backend/ScoreService';
+import { PublicPlayerCard } from './services/backend/SocialService';
+
 import { audio } from './services/Audio';
 import { haptics } from './services/Haptics';
 
-type ScreenState = 'MENU' | 'CLASSIC' | 'ADVENTURE_MAP' | 'ADVENTURE_GAME';
+type ScreenState =
+  | 'MENU'
+  | 'CLASSIC'
+  | 'ADVENTURE_MAP'
+  | 'ADVENTURE_GAME'
+  | 'LEADERBOARDS'
+  | 'SOCIAL';
 
 export const App: React.FC = () => {
   // Engine Instances
@@ -51,6 +64,7 @@ export const App: React.FC = () => {
   const [screen, setScreen] = useState<ScreenState>('MENU');
   const [activeLevel, setActiveLevel] = useState<AdventureLevel | null>(null);
   const [player, setPlayer] = useState<PlayerProfile | null>(null);
+  const [selectedPublicPlayer, setSelectedPublicPlayer] = useState<PublicPlayerCard | null>(null);
 
   // App UI States
   const [status, setStatus] = useState<GameStatus>('MENU');
@@ -100,7 +114,7 @@ export const App: React.FC = () => {
     return screen === 'ADVENTURE_GAME' ? adventureEngineRef.current : classicEngineRef.current;
   }, [screen]);
 
-  // Sync state from engine to React components and trigger Cloud Sync
+  // Sync state from engine to React components and trigger Cloud Sync & Leaderboard score submission
   const syncEngineState = useCallback(async () => {
     const engine = getActiveEngine();
     setScore(engine.getScore());
@@ -118,8 +132,29 @@ export const App: React.FC = () => {
         setHighScore(syncRes.mergedStats.highScore);
         setAdventureProgress(syncRes.mergedAdventure);
       }
+
+      // Submit Classic scores to All-Time and Weekly Leaderboards
+      if (screen === 'CLASSIC' && engine.getScore() > 0) {
+        await ScoreService.submitScore(player, 'CLASSIC_ALL_TIME', 'ALL_TIME', engine.getScore());
+        await ScoreService.submitScore(
+          player,
+          'CLASSIC_WEEKLY',
+          ScoreService.getWeeklyPeriodKey(),
+          engine.getScore()
+        );
+      }
+
+      // Submit Adventure Total Stars to Adventure Leaderboard
+      if (screen === 'ADVENTURE_GAME') {
+        await ScoreService.submitScore(
+          player,
+          'ADVENTURE_GLOBAL',
+          'ALL_TIME',
+          adventureProgress.totalStars
+        );
+      }
     }
-  }, [getActiveEngine, player]);
+  }, [getActiveEngine, player, screen, adventureProgress.totalStars]);
 
   // Load persistent stats, settings, player profile, and adventure progress on mount
   useEffect(() => {
@@ -156,6 +191,10 @@ export const App: React.FC = () => {
   // Handle Android Back Button to navigate screens
   useEffect(() => {
     const backAction = () => {
+      if (selectedPublicPlayer) {
+        setSelectedPublicPlayer(null);
+        return true;
+      }
       if (showProfileModal) {
         setShowProfileModal(false);
         return true;
@@ -164,7 +203,7 @@ export const App: React.FC = () => {
         setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : 'MENU');
         return true;
       }
-      if (screen === 'ADVENTURE_MAP') {
+      if (screen === 'ADVENTURE_MAP' || screen === 'LEADERBOARDS' || screen === 'SOCIAL') {
         setScreen('MENU');
         return true;
       }
@@ -173,7 +212,7 @@ export const App: React.FC = () => {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [screen, showProfileModal]);
+  }, [screen, showProfileModal, selectedPublicPlayer]);
 
   // App Lifecycle Handling
   useEffect(() => {
@@ -264,6 +303,7 @@ export const App: React.FC = () => {
 
     if (player) {
       await CloudSyncService.sync(player.id);
+      await ScoreService.submitScore(player, 'ADVENTURE_GLOBAL', 'ALL_TIME', totalStars);
     }
   };
 
@@ -455,6 +495,8 @@ export const App: React.FC = () => {
             onPlayClassic={handleStartClassic}
             onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
             onOpenProfile={() => setShowProfileModal(true)}
+            onOpenLeaderboards={() => setScreen('LEADERBOARDS')}
+            onOpenSocial={() => setScreen('SOCIAL')}
           />
         )}
 
@@ -463,6 +505,20 @@ export const App: React.FC = () => {
             world={WORLD_1_DATA}
             progress={adventureProgress}
             onSelectLevel={handleStartAdventureLevel}
+            onBack={() => setScreen('MENU')}
+          />
+        )}
+
+        {screen === 'LEADERBOARDS' && (
+          <LeaderboardScreen
+            currentPlayerId={player ? player.id : null}
+            onBack={() => setScreen('MENU')}
+          />
+        )}
+
+        {screen === 'SOCIAL' && player && (
+          <SocialScreen
+            player={player}
             onBack={() => setScreen('MENU')}
           />
         )}
@@ -609,6 +665,15 @@ export const App: React.FC = () => {
             player={player}
             onUpdatePlayer={(updated) => setPlayer(updated)}
             onClose={() => setShowProfileModal(false)}
+          />
+        )}
+
+        {/* Public Player Card Modal */}
+        {selectedPublicPlayer && player && (
+          <PublicProfileModal
+            card={selectedPublicPlayer}
+            currentPlayerId={player.id}
+            onClose={() => setSelectedPublicPlayer(null)}
           />
         )}
       </SafeAreaView>
