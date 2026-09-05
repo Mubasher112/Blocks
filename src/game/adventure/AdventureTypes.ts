@@ -57,6 +57,10 @@ export interface AdventureLevel {
   seed?: number; // Optional seed for piece generation
   initialBoard?: InitialBoardCell[]; // Optional pre-filled cells
   allowedShapeCategories?: ('basic' | 'square' | 'shapes' | 'irregular')[];
+  novaEnabled?: boolean;
+  novaEnergyMultiplier?: number;
+  novaPowerAvailability?: ('pulse' | 'wild' | 'shuffle' | 'undo' | 'prism')[];
+  novaActivationLimit?: number;
 }
 
 export interface WorldData {

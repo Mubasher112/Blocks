@@ -57,6 +57,15 @@ export class Board {
   }
 
   /**
+   * Sets cell state and color at (r, c)
+   */
+  public setCell(r: number, c: number, state: CellState, color: string | null = null): void {
+    if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
+      this.grid[r][c] = { state, color };
+    }
+  }
+
+  /**
    * Checks if piece can be legally placed at top-left position (startR, startC)
    */
   public canPlacePiece(piece: Piece, startR: number, startC: number): boolean {

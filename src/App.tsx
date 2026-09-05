@@ -38,6 +38,12 @@ import { LeaderboardScreen } from './components/leaderboard/LeaderboardScreen';
 import { SocialScreen } from './components/social/SocialScreen';
 import { PublicProfileModal } from './components/social/PublicProfileModal';
 
+import { NovaMeter } from './components/nova/NovaMeter';
+import { NovaPowerPanel } from './components/nova/NovaPowerPanel';
+import { PulseTargetSelector } from './components/nova/PulseTargetSelector';
+import { WildShapePicker } from './components/nova/WildShapePicker';
+import { NovaPowerId, NovaState } from './game/nova/NovaTypes';
+
 import { StorageService, DEFAULT_ADVENTURE_PROGRESS } from './services/Storage';
 import { AuthService, PlayerProfile } from './services/backend/AuthService';
 import { CloudSyncService } from './services/backend/CloudSyncService';
@@ -88,6 +94,19 @@ export const App: React.FC = () => {
   const [showFailedModal, setShowFailedModal] = useState<boolean>(false);
   const [completedStars, setCompletedStars] = useState<number>(0);
 
+  // Nova UI States
+  const [novaState, setNovaState] = useState<NovaState>({
+    energy: 0,
+    status: 'NORMAL',
+    remainingTurns: 0,
+    activePowers: ['pulse', 'wild', 'shuffle', 'undo', 'prism'],
+    consumedPowers: [],
+    isPrismArmed: false,
+    activationCount: 0,
+  });
+  const [showPulseSelector, setShowPulseSelector] = useState<boolean>(false);
+  const [showWildPicker, setShowWildPicker] = useState<boolean>(false);
+
   // Geometry ref
   const boardLayoutRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
 
@@ -121,6 +140,7 @@ export const App: React.FC = () => {
     setHighScore(engine.getHighScore());
     setComboCount(engine.getComboCount());
     setStatus(engine.getStatus());
+    setNovaState(engine.getNovaEngine().getState());
     const currentStats = engine.getStats();
     setStats(currentStats);
     await StorageService.saveStats(currentStats);
@@ -230,6 +250,7 @@ export const App: React.FC = () => {
             grid: grid.map(row => row.map(cell => ({ state: cell.state, color: cell.color }))),
             trayShapes,
             stats: engine.getStats(),
+            novaState: engine.getNovaEngine().getState(),
             saveVersion: 1,
           });
         }
@@ -556,6 +577,49 @@ export const App: React.FC = () => {
               </View>
             )}
 
+            {/* Nova Meter & Nova Powers UI */}
+            <View style={styles.novaContainer}>
+              <NovaMeter
+                novaState={novaState}
+                onActivate={async () => {
+                  const engine = getActiveEngine();
+                  const activated = engine.activateNova();
+                  if (activated) {
+                    audio.playNovaActivate();
+                    haptics.novaActivate();
+                    await syncEngineState();
+                  }
+                }}
+              />
+              <NovaPowerPanel
+                novaState={novaState}
+                canUndo={getActiveEngine().getNovaEngine().canUndo()}
+                onSelectPower={async (powerId: NovaPowerId) => {
+                  const engine = getActiveEngine();
+                  if (powerId === 'pulse') {
+                    setShowPulseSelector(true);
+                  } else if (powerId === 'wild') {
+                    setShowWildPicker(true);
+                  } else if (powerId === 'shuffle') {
+                    audio.playNovaPower();
+                    haptics.novaPower();
+                    engine.executeShuffle();
+                    await syncEngineState();
+                  } else if (powerId === 'undo') {
+                    audio.playNovaPower();
+                    haptics.novaPower();
+                    engine.undo();
+                    await syncEngineState();
+                  } else if (powerId === 'prism') {
+                    audio.playNovaPower();
+                    haptics.novaPower();
+                    engine.executePrism();
+                    await syncEngineState();
+                  }
+                }}
+              />
+            </View>
+
             <GameBoard
               board={getActiveEngine().getBoard()}
               draggedPiece={activePiece}
@@ -676,6 +740,32 @@ export const App: React.FC = () => {
             onClose={() => setSelectedPublicPlayer(null)}
           />
         )}
+
+        {/* Pulse Power Target Selector Modal */}
+        <PulseTargetSelector
+          visible={showPulseSelector}
+          onSelectCell={async (r, c) => {
+            setShowPulseSelector(false);
+            audio.playNovaClear();
+            haptics.novaClear();
+            getActiveEngine().executePulse(r, c);
+            await syncEngineState();
+          }}
+          onCancel={() => setShowPulseSelector(false)}
+        />
+
+        {/* Wild Power Shape Picker Modal */}
+        <WildShapePicker
+          visible={showWildPicker}
+          onSelectShape={async (newPiece) => {
+            setShowWildPicker(false);
+            audio.playNovaPower();
+            haptics.novaPower();
+            getActiveEngine().executeWild(0, newPiece);
+            await syncEngineState();
+          }}
+          onCancel={() => setShowWildPicker(false)}
+        />
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -689,6 +779,10 @@ const styles = StyleSheet.create({
   gameContainer: {
     flex: 1,
     position: 'relative',
+  },
+  novaContainer: {
+    paddingHorizontal: 16,
+    marginTop: 4,
   },
   objectiveHud: {
     flexDirection: 'row',

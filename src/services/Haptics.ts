@@ -42,6 +42,22 @@ export class HapticsService {
   public gameOver(): void {
     this.vibrate([80, 100, 120]);
   }
+
+  public novaReady(): void {
+    this.vibrate([20, 30, 20]);
+  }
+
+  public novaActivate(): void {
+    this.vibrate([50, 50, 100]);
+  }
+
+  public novaPower(): void {
+    this.vibrate(30);
+  }
+
+  public novaClear(): void {
+    this.vibrate([40, 60, 80, 100]);
+  }
 }
 
 export const haptics = new HapticsService();

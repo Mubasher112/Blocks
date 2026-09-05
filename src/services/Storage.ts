@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GameStats } from '../game/GameEngine';
 import { AdventureProgress } from '../game/adventure/AdventureTypes';
+import { NovaState } from '../game/nova/NovaTypes';
 
 const SAVE_VERSION = 1;
 
@@ -24,6 +25,7 @@ export interface ActiveGameState {
   grid: { state: string; color: string | null }[][];
   trayShapes: (string | null)[];
   stats: GameStats;
+  novaState?: NovaState;
   saveVersion: number;
 }
 
