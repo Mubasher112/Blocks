@@ -1,21 +1,36 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Play, Trophy, Flame, Grid, Map, Lock } from 'lucide-react-native';
+import { Play, Trophy, Flame, Grid, Map, User, Lock } from 'lucide-react-native';
 import { GameStats } from '../game/GameEngine';
+import { PlayerProfile } from '../services/backend/AuthService';
 
 interface MainMenuProps {
   stats: GameStats;
+  player: PlayerProfile | null;
   onPlayClassic: () => void;
   onPlayAdventure: () => void;
+  onOpenProfile: () => void;
 }
 
 export const MainMenu: React.FC<MainMenuProps> = ({
   stats,
+  player,
   onPlayClassic,
   onPlayAdventure,
+  onOpenProfile,
 }) => {
   return (
     <View style={styles.menuContainer}>
+      {/* Top Profile Entry Bar */}
+      <View style={styles.profileBar}>
+        <TouchableOpacity style={styles.profileChip} onPress={onOpenProfile} activeOpacity={0.8}>
+          <User size={18} color="#00F0FF" />
+          <Text style={styles.profileNameText}>
+            {player ? player.displayName : 'Guest Player'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.menuHeader}>
         <Text style={styles.menuTitle}>
           BLOCK <Text style={styles.novaAccent}>NOVA</Text>
@@ -95,7 +110,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     paddingHorizontal: 24,
-    paddingVertical: 30,
+    paddingVertical: 20,
+  },
+  profileBar: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  profileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(22, 27, 46, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+  },
+  profileNameText: {
+    color: '#f3f4f6',
+    fontWeight: '800',
+    fontSize: 12,
   },
   menuHeader: {
     alignItems: 'center',

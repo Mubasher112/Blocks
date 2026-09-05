@@ -3,6 +3,7 @@ declare module 'react-native' {
   export const Text: any;
   export const TouchableOpacity: any;
   export const ScrollView: any;
+  export const TextInput: any;
   export const Modal: any;
   export const StyleSheet: any;
   export const BackHandler: any;
@@ -40,6 +41,7 @@ declare module 'lucide-react-native' {
   export const Grid: any;
   export const Map: any;
   export const Lock: any;
+  export const User: any;
   export const Volume2: any;
   export const VolumeX: any;
   export const Pause: any;
@@ -52,6 +54,7 @@ declare module 'lucide-react-native' {
   export const ArrowRight: any;
   export const X: any;
   export const Target: any;
+  export const LogOut: any;
 }
 
 declare module 'react-native-web';

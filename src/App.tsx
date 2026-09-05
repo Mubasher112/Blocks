@@ -32,8 +32,11 @@ import { AdventureMap } from './components/adventure/AdventureMap';
 import { LevelStartModal } from './components/adventure/LevelStartModal';
 import { LevelSuccessModal } from './components/adventure/LevelSuccessModal';
 import { LevelFailedModal } from './components/adventure/LevelFailedModal';
+import { ProfileModal } from './components/profile/ProfileModal';
 
 import { StorageService, DEFAULT_ADVENTURE_PROGRESS } from './services/Storage';
+import { AuthService, PlayerProfile } from './services/backend/AuthService';
+import { CloudSyncService } from './services/backend/CloudSyncService';
 import { audio } from './services/Audio';
 import { haptics } from './services/Haptics';
 
@@ -44,9 +47,10 @@ export const App: React.FC = () => {
   const classicEngineRef = useRef<GameEngine>(new GameEngine());
   const adventureEngineRef = useRef<AdventureEngine>(new AdventureEngine());
 
-  // Active Screen State
+  // Active Screen & Player State
   const [screen, setScreen] = useState<ScreenState>('MENU');
   const [activeLevel, setActiveLevel] = useState<AdventureLevel | null>(null);
+  const [player, setPlayer] = useState<PlayerProfile | null>(null);
 
   // App UI States
   const [status, setStatus] = useState<GameStatus>('MENU');
@@ -64,6 +68,7 @@ export const App: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   // Modal States
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showLevelStartModal, setShowLevelStartModal] = useState<boolean>(false);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [showFailedModal, setShowFailedModal] = useState<boolean>(false);
@@ -95,8 +100,8 @@ export const App: React.FC = () => {
     return screen === 'ADVENTURE_GAME' ? adventureEngineRef.current : classicEngineRef.current;
   }, [screen]);
 
-  // Sync state from engine to React components
-  const syncEngineState = useCallback(() => {
+  // Sync state from engine to React components and trigger Cloud Sync
+  const syncEngineState = useCallback(async () => {
     const engine = getActiveEngine();
     setScore(engine.getScore());
     setHighScore(engine.getHighScore());
@@ -104,10 +109,19 @@ export const App: React.FC = () => {
     setStatus(engine.getStatus());
     const currentStats = engine.getStats();
     setStats(currentStats);
-    StorageService.saveStats(currentStats);
-  }, [getActiveEngine]);
+    await StorageService.saveStats(currentStats);
 
-  // Load persistent stats, settings, and adventure progress on mount
+    if (player) {
+      const syncRes = await CloudSyncService.sync(player.id);
+      if (syncRes.conflictResolved) {
+        setStats(syncRes.mergedStats);
+        setHighScore(syncRes.mergedStats.highScore);
+        setAdventureProgress(syncRes.mergedAdventure);
+      }
+    }
+  }, [getActiveEngine, player]);
+
+  // Load persistent stats, settings, player profile, and adventure progress on mount
   useEffect(() => {
     async function loadData() {
       const loadedStats = await StorageService.loadStats();
@@ -123,6 +137,18 @@ export const App: React.FC = () => {
       haptics.setEnabled(loadedSettings.hapticsEnabled);
 
       classicEngineRef.current = new GameEngine(undefined, loadedStats);
+
+      // Login/Restore Guest Player
+      const guestPlayer = await AuthService.loginAsGuest();
+      setPlayer(guestPlayer);
+
+      // Perform initial cloud sync
+      const syncRes = await CloudSyncService.sync(guestPlayer.id);
+      if (syncRes.conflictResolved) {
+        setStats(syncRes.mergedStats);
+        setHighScore(syncRes.mergedStats.highScore);
+        setAdventureProgress(syncRes.mergedAdventure);
+      }
     }
     loadData();
   }, []);
@@ -130,6 +156,10 @@ export const App: React.FC = () => {
   // Handle Android Back Button to navigate screens
   useEffect(() => {
     const backAction = () => {
+      if (showProfileModal) {
+        setShowProfileModal(false);
+        return true;
+      }
       if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME') {
         setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : 'MENU');
         return true;
@@ -143,7 +173,7 @@ export const App: React.FC = () => {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [screen]);
+  }, [screen, showProfileModal]);
 
   // App Lifecycle Handling
   useEffect(() => {
@@ -177,7 +207,7 @@ export const App: React.FC = () => {
     await StorageService.clearActiveGame();
     classicEngineRef.current.startNewGame();
     setScreen('CLASSIC');
-    syncEngineState();
+    await syncEngineState();
   };
 
   // Start Selected Adventure Level
@@ -186,14 +216,14 @@ export const App: React.FC = () => {
     setShowLevelStartModal(true);
   };
 
-  const handleConfirmStartAdventureLevel = () => {
+  const handleConfirmStartAdventureLevel = async () => {
     if (!activeLevel) return;
 
     audio.playButtonClick();
     setShowLevelStartModal(false);
     adventureEngineRef.current.startLevel(activeLevel);
     setScreen('ADVENTURE_GAME');
-    syncEngineState();
+    await syncEngineState();
   };
 
   // Toggle Sound Settings
@@ -216,7 +246,6 @@ export const App: React.FC = () => {
 
     updatedCompleted[level.id] = { stars: newStars, bestScore: newBestScore };
 
-    // Calculate total stars across all completed levels
     const totalStars = Object.values(updatedCompleted).reduce((sum, item) => sum + item.stars, 0);
 
     const nextLevelNum = Math.max(adventureProgress.unlockedLevelNumber, level.levelNumber + 1);
@@ -232,6 +261,10 @@ export const App: React.FC = () => {
 
     setAdventureProgress(newProgress);
     await StorageService.saveAdventureProgress(newProgress);
+
+    if (player) {
+      await CloudSyncService.sync(player.id);
+    }
   };
 
   // Touch Drag-and-Drop PanResponder Implementation
@@ -276,7 +309,7 @@ export const App: React.FC = () => {
           setIsValidPreview(false);
         }
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: async () => {
         const index = activeDragIndexRef.current;
         const piece = draggedPieceRef.current;
         const pos = previewPosRef.current;
@@ -318,14 +351,14 @@ export const App: React.FC = () => {
               if (moveResult.isObjectiveComplete) {
                 audio.playClear(3);
                 haptics.clear();
-                handleLevelCompleted(activeLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
+                await handleLevelCompleted(activeLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
               } else if (moveResult.isGameOver) {
                 audio.playGameOver();
                 haptics.gameOver();
                 setShowFailedModal(true);
               }
 
-              syncEngineState();
+              await syncEngineState();
             }
           } else {
             // Classic Game Placement
@@ -364,7 +397,7 @@ export const App: React.FC = () => {
                 haptics.gameOver();
               }
 
-              syncEngineState();
+              await syncEngineState();
             }
           }
         }
@@ -418,8 +451,10 @@ export const App: React.FC = () => {
         {screen === 'MENU' && (
           <MainMenu
             stats={stats}
+            player={player}
             onPlayClassic={handleStartClassic}
             onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
+            onOpenProfile={() => setShowProfileModal(true)}
           />
         )}
 
@@ -441,13 +476,13 @@ export const App: React.FC = () => {
               soundEnabled={soundEnabled}
               onToggleSound={handleToggleSound}
               onPause={() => setScreen('MENU')}
-              onRestart={() => {
+              onRestart={async () => {
                 if (screen === 'ADVENTURE_GAME' && activeLevel) {
                   adventureEngineRef.current.startLevel(activeLevel);
                 } else {
                   classicEngineRef.current.startNewGame();
                 }
-                syncEngineState();
+                await syncEngineState();
               }}
             />
 
@@ -529,10 +564,10 @@ export const App: React.FC = () => {
                     setScreen('ADVENTURE_MAP');
                   }
                 }}
-                onReplay={() => {
+                onReplay={async () => {
                   setShowSuccessModal(false);
                   adventureEngineRef.current.startLevel(activeLevel);
-                  syncEngineState();
+                  await syncEngineState();
                 }}
                 onMap={() => {
                   setShowSuccessModal(false);
@@ -545,10 +580,10 @@ export const App: React.FC = () => {
               <LevelFailedModal
                 level={activeLevel}
                 score={score}
-                onRetry={() => {
+                onRetry={async () => {
                   setShowFailedModal(false);
                   adventureEngineRef.current.startLevel(activeLevel);
-                  syncEngineState();
+                  await syncEngineState();
                 }}
                 onMap={() => {
                   setShowFailedModal(false);
@@ -565,6 +600,15 @@ export const App: React.FC = () => {
             level={activeLevel}
             onStart={handleConfirmStartAdventureLevel}
             onClose={() => setShowLevelStartModal(false)}
+          />
+        )}
+
+        {/* Profile / Account Settings Modal */}
+        {showProfileModal && player && (
+          <ProfileModal
+            player={player}
+            onUpdatePlayer={(updated) => setPlayer(updated)}
+            onClose={() => setShowProfileModal(false)}
           />
         )}
       </SafeAreaView>
