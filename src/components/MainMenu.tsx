@@ -3,12 +3,17 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Play, Trophy, Flame, Grid, Map, User, Users, Lock } from 'lucide-react-native';
 import { GameStats } from '../game/GameEngine';
 import { PlayerProfile } from '../services/backend/AuthService';
+import { DailyChallenge, StreakInfo } from '../game/events/DailyChallengeTypes';
+import { DailyChallengeCard } from './events/DailyChallengeCard';
 
 interface MainMenuProps {
   stats: GameStats;
   player: PlayerProfile | null;
+  dailyChallenge: DailyChallenge | null;
+  dailyStreak: StreakInfo | null;
   onPlayClassic: () => void;
   onPlayAdventure: () => void;
+  onPlayDaily: () => void;
   onOpenProfile: () => void;
   onOpenLeaderboards: () => void;
   onOpenSocial: () => void;
@@ -17,8 +22,11 @@ interface MainMenuProps {
 export const MainMenu: React.FC<MainMenuProps> = ({
   stats,
   player,
+  dailyChallenge,
+  dailyStreak,
   onPlayClassic,
   onPlayAdventure,
+  onPlayDaily,
   onOpenProfile,
   onOpenLeaderboards,
   onOpenSocial,
@@ -92,17 +100,16 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         </TouchableOpacity>
       </View>
 
+      {/* Daily Challenge Interactive Card */}
+      <DailyChallengeCard
+        challenge={dailyChallenge}
+        streak={dailyStreak}
+        onPlay={onPlayDaily}
+      />
+
       <View style={styles.modesSection}>
         <Text style={styles.sectionTitle}>UPCOMING MODES</Text>
         <View style={styles.modesGrid}>
-          <View style={styles.modeCardDisabled}>
-            <View style={styles.modeHeader}>
-              <Text style={styles.modeName}>Daily Nova</Text>
-              <Lock size={14} color="#9ca3af" />
-            </View>
-            <Text style={styles.modeDesc}>Daily seeded puzzle challenge</Text>
-          </View>
-
           <View style={styles.modeCardDisabled}>
             <View style={styles.modeHeader}>
               <Text style={styles.modeName}>Rush Mode</Text>

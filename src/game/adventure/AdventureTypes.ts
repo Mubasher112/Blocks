@@ -49,7 +49,7 @@ export interface AdventureLevel {
   levelNumber: number;
   name: string;
   description: string;
-  difficulty: 'EASY' | 'NORMAL' | 'HARD' | 'EXPERT';
+  difficulty: 'EASY' | 'NORMAL' | 'MEDIUM' | 'HARD' | 'EXPERT';
   objective: LevelObjective;
   moveLimit?: number; // undefined = unlimited
   starRequirements: StarRequirements;

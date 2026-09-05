@@ -44,11 +44,16 @@ import { PulseTargetSelector } from './components/nova/PulseTargetSelector';
 import { WildShapePicker } from './components/nova/WildShapePicker';
 import { NovaPowerId, NovaState } from './game/nova/NovaTypes';
 
+import { DailyChallenge, StreakInfo } from './game/events/DailyChallengeTypes';
+import { DailyChallengeScreen } from './components/events/DailyChallengeScreen';
+import { DailyResultModal } from './components/events/DailyResultModal';
+
 import { StorageService, DEFAULT_ADVENTURE_PROGRESS } from './services/Storage';
 import { AuthService, PlayerProfile } from './services/backend/AuthService';
 import { CloudSyncService } from './services/backend/CloudSyncService';
 import { ScoreService } from './services/backend/ScoreService';
 import { PublicPlayerCard } from './services/backend/SocialService';
+import { DailyChallengeService } from './services/backend/DailyChallengeService';
 
 import { audio } from './services/Audio';
 import { haptics } from './services/Haptics';
@@ -58,6 +63,8 @@ type ScreenState =
   | 'CLASSIC'
   | 'ADVENTURE_MAP'
   | 'ADVENTURE_GAME'
+  | 'DAILY_SCREEN'
+  | 'DAILY_GAME'
   | 'LEADERBOARDS'
   | 'SOCIAL';
 
@@ -86,6 +93,13 @@ export const App: React.FC = () => {
   });
   const [adventureProgress, setAdventureProgress] = useState<AdventureProgress>(DEFAULT_ADVENTURE_PROGRESS);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  // Daily Challenge States
+  const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
+  const [dailyStreak, setDailyStreak] = useState<StreakInfo | null>(null);
+  const [dailyBestScore, setDailyBestScore] = useState<number>(0);
+  const [showDailyResultModal, setShowDailyResultModal] = useState<boolean>(false);
+  const [dailyCompleted, setDailyCompleted] = useState<boolean>(false);
 
   // Modal States
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
@@ -130,7 +144,9 @@ export const App: React.FC = () => {
 
   // Helper to get currently active engine based on screen
   const getActiveEngine = useCallback(() => {
-    return screen === 'ADVENTURE_GAME' ? adventureEngineRef.current : classicEngineRef.current;
+    return screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME'
+      ? adventureEngineRef.current
+      : classicEngineRef.current;
   }, [screen]);
 
   // Sync state from engine to React components and trigger Cloud Sync & Leaderboard score submission
@@ -197,13 +213,20 @@ export const App: React.FC = () => {
       const guestPlayer = await AuthService.loginAsGuest();
       setPlayer(guestPlayer);
 
-      // Perform initial cloud sync
+      // Fetch Today's Daily Challenge & Streak
+      const challenge = await DailyChallengeService.getTodayChallenge();
+      const streak = await DailyChallengeService.getStreak(guestPlayer.id);
+      setDailyChallenge(challenge);
+      setDailyStreak(streak);
+
+      // Perform initial cloud sync & pending offline submissions sync
       const syncRes = await CloudSyncService.sync(guestPlayer.id);
       if (syncRes.conflictResolved) {
         setStats(syncRes.mergedStats);
         setHighScore(syncRes.mergedStats.highScore);
         setAdventureProgress(syncRes.mergedAdventure);
       }
+      await DailyChallengeService.syncPendingSubmissions(guestPlayer);
     }
     loadData();
   }, []);
@@ -219,11 +242,11 @@ export const App: React.FC = () => {
         setShowProfileModal(false);
         return true;
       }
-      if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME') {
-        setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : 'MENU');
+      if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') {
+        setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : screen === 'DAILY_GAME' ? 'DAILY_SCREEN' : 'MENU');
         return true;
       }
-      if (screen === 'ADVENTURE_MAP' || screen === 'LEADERBOARDS' || screen === 'SOCIAL') {
+      if (screen === 'ADVENTURE_MAP' || screen === 'DAILY_SCREEN' || screen === 'LEADERBOARDS' || screen === 'SOCIAL') {
         setScreen('MENU');
         return true;
       }
@@ -377,7 +400,41 @@ export const App: React.FC = () => {
         const isValid = isValidPreviewRef.current;
 
         if (index !== null && piece && pos && isValid) {
-          if (screen === 'ADVENTURE_GAME' && activeLevel) {
+          if (screen === 'DAILY_GAME' && dailyChallenge) {
+            // Daily Challenge Gameplay Loop
+            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+              }
+
+              if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
+                const finalScore = adventureEngineRef.current.getScore();
+                setDailyCompleted(moveResult.isObjectiveComplete);
+
+                if (player) {
+                  const res = await DailyChallengeService.submitResult(
+                    player,
+                    dailyChallenge.id,
+                    finalScore,
+                    adventureEngineRef.current.getGameplayStats().linesCleared,
+                    adventureEngineRef.current.getGameplayStats().movesUsed,
+                    moveResult.isObjectiveComplete
+                  );
+                  setDailyBestScore(res.bestScore);
+                  setDailyStreak(res.streakInfo);
+                }
+
+                setShowDailyResultModal(true);
+              }
+
+              await syncEngineState();
+            }
+          } else if (screen === 'ADVENTURE_GAME' && activeLevel) {
             const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
 
             if (moveResult.success) {
@@ -513,11 +570,44 @@ export const App: React.FC = () => {
           <MainMenu
             stats={stats}
             player={player}
+            dailyChallenge={dailyChallenge}
+            dailyStreak={dailyStreak}
             onPlayClassic={handleStartClassic}
             onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
+            onPlayDaily={() => setScreen('DAILY_SCREEN')}
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenLeaderboards={() => setScreen('LEADERBOARDS')}
             onOpenSocial={() => setScreen('SOCIAL')}
+          />
+        )}
+
+        {screen === 'DAILY_SCREEN' && (
+          <DailyChallengeScreen
+            challenge={dailyChallenge}
+            streak={dailyStreak}
+            bestScore={dailyBestScore}
+            onStart={async () => {
+              if (dailyChallenge) {
+                audio.playButtonClick();
+                adventureEngineRef.current.startLevel({
+                  id: dailyChallenge.id,
+                  worldId: 'daily',
+                  levelNumber: 1,
+                  name: dailyChallenge.title,
+                  description: dailyChallenge.description,
+                  difficulty: dailyChallenge.difficulty,
+                  objective: dailyChallenge.objective,
+                  moveLimit: dailyChallenge.moveLimit,
+                  starRequirements: { twoStarScore: 1000, threeStarScore: 2000 },
+                  rewards: dailyChallenge.rewards,
+                  seed: dailyChallenge.seed,
+                  initialBoard: dailyChallenge.initialBoard,
+                });
+                setScreen('DAILY_GAME');
+                await syncEngineState();
+              }
+            }}
+            onBack={() => setScreen('MENU')}
           />
         )}
 
@@ -544,7 +634,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {(screen === 'CLASSIC' || screen === 'ADVENTURE_GAME') && (
+        {(screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') && (
           <View style={styles.gameContainer} {...panResponder.panHandlers}>
             <GameHeader
               score={score}
@@ -738,6 +828,40 @@ export const App: React.FC = () => {
             card={selectedPublicPlayer}
             currentPlayerId={player.id}
             onClose={() => setSelectedPublicPlayer(null)}
+          />
+        )}
+
+        {/* Daily Challenge Result Modal */}
+        {showDailyResultModal && dailyChallenge && (
+          <DailyResultModal
+            visible={showDailyResultModal}
+            challenge={dailyChallenge}
+            score={score}
+            bestScore={dailyBestScore}
+            completed={dailyCompleted}
+            streak={dailyStreak}
+            onRetry={async () => {
+              setShowDailyResultModal(false);
+              adventureEngineRef.current.startLevel({
+                id: dailyChallenge.id,
+                worldId: 'daily',
+                levelNumber: 1,
+                name: dailyChallenge.title,
+                description: dailyChallenge.description,
+                difficulty: dailyChallenge.difficulty,
+                objective: dailyChallenge.objective,
+                moveLimit: dailyChallenge.moveLimit,
+                starRequirements: { twoStarScore: 1000, threeStarScore: 2000 },
+                rewards: dailyChallenge.rewards,
+                seed: dailyChallenge.seed,
+                initialBoard: dailyChallenge.initialBoard,
+              });
+              await syncEngineState();
+            }}
+            onHome={() => {
+              setShowDailyResultModal(false);
+              setScreen('DAILY_SCREEN');
+            }}
           />
         )}
 
