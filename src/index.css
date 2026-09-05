@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
+
+:root {
+  --bg-color: #0d0f17;
+  --panel-bg: rgba(22, 27, 46, 0.7);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --cell-empty: #131726;
+  --cell-border: rgba(255, 255, 255, 0.05);
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --accent-cyan: #00F0FF;
+  --accent-magenta: #FF007F;
+  --accent-amber: #FFB800;
+  --font-outfit: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: var(--font-outfit);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  max-width: 500px;
+  max-height: 900px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: radial-gradient(circle at 50% 20%, #1a1e36 0%, #0d0f17 100%);
+}
+
+/* Base Styles & Utility Classes */
+button {
+  font-family: var(--font-outfit);
+  border: none;
+  outline: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.4); }
+  50% { box-shadow: 0 0 25px rgba(0, 240, 255, 0.8); }
+}
+
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(0.8); opacity: 1; }
+  100% { transform: translateY(-40px) scale(1.2); opacity: 0; }
+}
