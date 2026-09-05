@@ -1,5 +1,6 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause, RefreshCw } from 'lucide-react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Volume2, VolumeX, Pause, RefreshCw } from 'lucide-react-native';
 
 interface GameHeaderProps {
   score: number;
@@ -21,150 +22,129 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
   onRestart,
 }) => {
   return (
-    <header className="header-container">
-      <div className="header-top">
-        <h1 className="logo-title">
-          BLOCK <span className="nova-accent">NOVA</span>
-        </h1>
-        <div className="header-actions">
-          <button className="icon-btn" onClick={onToggleSound} title="Toggle Sound">
-            {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-          </button>
-          <button className="icon-btn" onClick={onRestart} title="Restart Game">
-            <RefreshCw size={20} />
-          </button>
-          <button className="icon-btn" onClick={onPause} title="Pause">
-            <Pause size={20} />
-          </button>
-        </div>
-      </div>
+    <View style={styles.headerContainer}>
+      <View style={styles.headerTop}>
+        <Text style={styles.logoTitle}>
+          BLOCK <Text style={styles.novaAccent}>NOVA</Text>
+        </Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.iconBtn} onPress={onToggleSound} activeOpacity={0.7}>
+            {soundEnabled ? <Volume2 size={20} color="#f3f4f6" /> : <VolumeX size={20} color="#f3f4f6" />}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={onRestart} activeOpacity={0.7}>
+            <RefreshCw size={20} color="#f3f4f6" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={onPause} activeOpacity={0.7}>
+            <Pause size={20} color="#f3f4f6" />
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      <div className="score-panel">
-        <div className="score-box">
-          <span className="score-label">SCORE</span>
-          <span className="score-value">{score.toLocaleString()}</span>
-        </div>
+      <View style={styles.scorePanel}>
+        <View style={styles.scoreBox}>
+          <Text style={styles.scoreLabel}>SCORE</Text>
+          <Text style={styles.scoreValue}>{score.toLocaleString()}</Text>
+        </View>
 
         {comboCount > 1 && (
-          <div className="combo-badge">
-            <span className="combo-fire">🔥</span>
-            <span className="combo-text">{comboCount}x COMBO!</span>
-          </div>
+          <View style={styles.comboBadge}>
+            <Text style={styles.comboFire}>🔥</Text>
+            <Text style={styles.comboText}>{comboCount}x COMBO!</Text>
+          </View>
         )}
 
-        <div className="score-box align-right">
-          <span className="score-label">BEST</span>
-          <span className="score-value highlight">{highScore.toLocaleString()}</span>
-        </div>
-      </div>
-
-      <style>{`
-        .header-container {
-          padding: 16px 20px 8px 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          width: 100%;
-        }
-
-        .header-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .logo-title {
-          font-size: 1.5rem;
-          font-weight: 900;
-          letter-spacing: 1px;
-          color: #ffffff;
-        }
-
-        .nova-accent {
-          color: var(--accent-cyan);
-          text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-        }
-
-        .header-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .icon-btn {
-          background: var(--panel-bg);
-          border: 1px solid var(--panel-border);
-          color: var(--text-main);
-          width: 38px;
-          height: 38px;
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .icon-btn:hover {
-          background: rgba(255, 255, 255, 0.15);
-        }
-
-        .score-panel {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: var(--panel-bg);
-          border: 1px solid var(--panel-border);
-          padding: 12px 18px;
-          border-radius: 16px;
-          backdrop-filter: blur(10px);
-        }
-
-        .score-box {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .score-box.align-right {
-          align-items: flex-end;
-        }
-
-        .score-label {
-          font-size: 0.75rem;
-          font-weight: 700;
-          color: var(--text-muted);
-          letter-spacing: 0.5px;
-        }
-
-        .score-value {
-          font-size: 1.4rem;
-          font-weight: 800;
-          color: #ffffff;
-        }
-
-        .score-value.highlight {
-          color: var(--accent-amber);
-        }
-
-        .combo-badge {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          background: linear-gradient(135deg, #ff007f 0%, #ff6b00 100%);
-          padding: 6px 12px;
-          border-radius: 20px;
-          animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-          box-shadow: 0 0 12px rgba(255, 0, 127, 0.5);
-        }
-
-        .combo-fire {
-          font-size: 0.9rem;
-        }
-
-        .combo-text {
-          font-size: 0.85rem;
-          font-weight: 800;
-          color: #ffffff;
-          letter-spacing: 0.5px;
-        }
-      `}</style>
-    </header>
+        <View style={[styles.scoreBox, styles.alignRight]}>
+          <Text style={styles.scoreLabel}>BEST</Text>
+          <Text style={[styles.scoreValue, styles.highlight]}>{highScore.toLocaleString()}</Text>
+        </View>
+      </View>
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  headerContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    width: '100%',
+    gap: 12,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  logoTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: '#ffffff',
+  },
+  novaAccent: {
+    color: '#00F0FF',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iconBtn: {
+    backgroundColor: 'rgba(22, 27, 46, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scorePanel: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(22, 27, 46, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+  },
+  scoreBox: {
+    flexDirection: 'column',
+  },
+  alignRight: {
+    alignItems: 'flex-end',
+  },
+  scoreLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9ca3af',
+    letterSpacing: 0.5,
+  },
+  scoreValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  highlight: {
+    color: '#FFB800',
+  },
+  comboBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FF007F',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  comboFire: {
+    fontSize: 12,
+  },
+  comboText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+});

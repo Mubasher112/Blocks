@@ -1,34 +1,80 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  PanResponder,
+  PanResponderInstance,
+  GestureResponderEvent,
+  BackHandler,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+
 import { GameEngine, GameStatus, GameStats } from './game/GameEngine';
+import { AdventureEngine } from './game/adventure/AdventureEngine';
+import { AdventureLevel, AdventureProgress } from './game/adventure/AdventureTypes';
+import { WORLD_1_DATA } from './game/adventure/levels/world1';
+import { ObjectiveEvaluator } from './game/adventure/ObjectiveEvaluator';
 import { Piece } from './game/Piece';
 import { Board } from './game/Board';
+
 import { GameHeader } from './components/GameHeader';
 import { GameBoard } from './components/GameBoard';
 import { PieceTray } from './components/PieceTray';
 import { PieceComponent } from './components/Piece';
 import { MainMenu } from './components/MainMenu';
 import { GameOverModal } from './components/GameOverModal';
-import { StorageService } from './services/Storage';
+
+import { AdventureMap } from './components/adventure/AdventureMap';
+import { LevelStartModal } from './components/adventure/LevelStartModal';
+import { LevelSuccessModal } from './components/adventure/LevelSuccessModal';
+import { LevelFailedModal } from './components/adventure/LevelFailedModal';
+
+import { StorageService, DEFAULT_ADVENTURE_PROGRESS } from './services/Storage';
 import { audio } from './services/Audio';
 import { haptics } from './services/Haptics';
 
+type ScreenState = 'MENU' | 'CLASSIC' | 'ADVENTURE_MAP' | 'ADVENTURE_GAME';
+
 export const App: React.FC = () => {
-  // Game Engine instance
-  const engineRef = useRef<GameEngine>(new GameEngine(undefined, StorageService.loadStats()));
+  // Engine Instances
+  const classicEngineRef = useRef<GameEngine>(new GameEngine());
+  const adventureEngineRef = useRef<AdventureEngine>(new AdventureEngine());
+
+  // Active Screen State
+  const [screen, setScreen] = useState<ScreenState>('MENU');
+  const [activeLevel, setActiveLevel] = useState<AdventureLevel | null>(null);
 
   // App UI States
   const [status, setStatus] = useState<GameStatus>('MENU');
   const [score, setScore] = useState<number>(0);
   const [highScore, setHighScore] = useState<number>(0);
   const [comboCount, setComboCount] = useState<number>(0);
-  const [stats, setStats] = useState<GameStats>(StorageService.loadStats());
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(
-    StorageService.loadSettings().soundEnabled
-  );
+  const [stats, setStats] = useState<GameStats>({
+    gamesPlayed: 0,
+    totalLinesCleared: 0,
+    totalBlocksPlaced: 0,
+    highScore: 0,
+    longestCombo: 0,
+  });
+  const [adventureProgress, setAdventureProgress] = useState<AdventureProgress>(DEFAULT_ADVENTURE_PROGRESS);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
-  // Drag & Drop Pointer Interaction States
+  // Modal States
+  const [showLevelStartModal, setShowLevelStartModal] = useState<boolean>(false);
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
+  const [showFailedModal, setShowFailedModal] = useState<boolean>(false);
+  const [completedStars, setCompletedStars] = useState<number>(0);
+
+  // Geometry ref
+  const boardLayoutRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  // Drag Interaction States
   const [activeDragIndex, setActiveDragIndex] = useState<number | null>(null);
-  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const [dragLocation, setDragLocation] = useState<{ x: number; y: number } | null>(null);
   const [previewPos, setPreviewPos] = useState<{ r: number; c: number } | null>(null);
   const [isValidPreview, setIsValidPreview] = useState<boolean>(false);
 
@@ -38,11 +84,20 @@ export const App: React.FC = () => {
     { id: number; score: number; r: number; c: number }[]
   >([]);
 
-  const boardRef = useRef<HTMLDivElement>(null);
+  // Refs for tracking drag state inside PanResponder handlers
+  const activeDragIndexRef = useRef<number | null>(null);
+  const draggedPieceRef = useRef<Piece | null>(null);
+  const previewPosRef = useRef<{ r: number; c: number } | null>(null);
+  const isValidPreviewRef = useRef<boolean>(false);
+
+  // Helper to get currently active engine based on screen
+  const getActiveEngine = useCallback(() => {
+    return screen === 'ADVENTURE_GAME' ? adventureEngineRef.current : classicEngineRef.current;
+  }, [screen]);
 
   // Sync state from engine to React components
   const syncEngineState = useCallback(() => {
-    const engine = engineRef.current;
+    const engine = getActiveEngine();
     setScore(engine.getScore());
     setHighScore(engine.getHighScore());
     setComboCount(engine.getComboCount());
@@ -50,212 +105,504 @@ export const App: React.FC = () => {
     const currentStats = engine.getStats();
     setStats(currentStats);
     StorageService.saveStats(currentStats);
+  }, [getActiveEngine]);
+
+  // Load persistent stats, settings, and adventure progress on mount
+  useEffect(() => {
+    async function loadData() {
+      const loadedStats = await StorageService.loadStats();
+      const loadedSettings = await StorageService.loadSettings();
+      const loadedProgress = await StorageService.loadAdventureProgress();
+
+      setStats(loadedStats);
+      setHighScore(loadedStats.highScore);
+      setSoundEnabled(loadedSettings.soundEnabled);
+      setAdventureProgress(loadedProgress);
+
+      audio.setEnabled(loadedSettings.soundEnabled);
+      haptics.setEnabled(loadedSettings.hapticsEnabled);
+
+      classicEngineRef.current = new GameEngine(undefined, loadedStats);
+    }
+    loadData();
   }, []);
 
-  // Handle start game
-  const handleStartGame = () => {
+  // Handle Android Back Button to navigate screens
+  useEffect(() => {
+    const backAction = () => {
+      if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME') {
+        setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : 'MENU');
+        return true;
+      }
+      if (screen === 'ADVENTURE_MAP') {
+        setScreen('MENU');
+        return true;
+      }
+      return false;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [screen]);
+
+  // App Lifecycle Handling
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        if (screen === 'CLASSIC' && status === 'PLAYING') {
+          const engine = classicEngineRef.current;
+          const grid = engine.getBoard().getGrid();
+          const trayShapes = engine.getTray().map(p => (p ? p.shapeId : null));
+
+          await StorageService.saveActiveGame({
+            score: engine.getScore(),
+            highScore: engine.getHighScore(),
+            comboCount: engine.getComboCount(),
+            grid: grid.map(row => row.map(cell => ({ state: cell.state, color: cell.color }))),
+            trayShapes,
+            stats: engine.getStats(),
+            saveVersion: 1,
+          });
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [screen, status]);
+
+  // Start Classic Game
+  const handleStartClassic = async () => {
     audio.playButtonClick();
-    engineRef.current.startNewGame();
+    await StorageService.clearActiveGame();
+    classicEngineRef.current.startNewGame();
+    setScreen('CLASSIC');
+    syncEngineState();
+  };
+
+  // Start Selected Adventure Level
+  const handleStartAdventureLevel = (level: AdventureLevel) => {
+    setActiveLevel(level);
+    setShowLevelStartModal(true);
+  };
+
+  const handleConfirmStartAdventureLevel = () => {
+    if (!activeLevel) return;
+
+    audio.playButtonClick();
+    setShowLevelStartModal(false);
+    adventureEngineRef.current.startLevel(activeLevel);
+    setScreen('ADVENTURE_GAME');
     syncEngineState();
   };
 
   // Toggle Sound Settings
-  const handleToggleSound = () => {
+  const handleToggleSound = async () => {
     const nextState = !soundEnabled;
     setSoundEnabled(nextState);
     audio.setEnabled(nextState);
-    StorageService.saveSettings({ soundEnabled: nextState, hapticsEnabled: true });
+    await StorageService.saveSettings({ soundEnabled: nextState, hapticsEnabled: true });
   };
 
-  // Drag and Drop Logic using Pointer Events
-  const draggedPiece: Piece | null =
-    activeDragIndex !== null ? engineRef.current.getTray()[activeDragIndex] : null;
+  // Handle Level Win/Progress Update
+  const handleLevelCompleted = async (level: AdventureLevel, finalScore: number, stars: number) => {
+    setCompletedStars(stars);
+    setShowSuccessModal(true);
 
-  const handleStartDrag = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
+    const updatedCompleted = { ...adventureProgress.completedLevels };
+    const prevEntry = updatedCompleted[level.id];
+    const newBestScore = prevEntry ? Math.max(prevEntry.bestScore, finalScore) : finalScore;
+    const newStars = prevEntry ? Math.max(prevEntry.stars, stars) : stars;
+
+    updatedCompleted[level.id] = { stars: newStars, bestScore: newBestScore };
+
+    // Calculate total stars across all completed levels
+    const totalStars = Object.values(updatedCompleted).reduce((sum, item) => sum + item.stars, 0);
+
+    const nextLevelNum = Math.max(adventureProgress.unlockedLevelNumber, level.levelNumber + 1);
+
+    const newProgress: AdventureProgress = {
+      ...adventureProgress,
+      unlockedLevelNumber: nextLevelNum,
+      completedLevels: updatedCompleted,
+      totalStars,
+      coins: adventureProgress.coins + level.rewards.coins,
+      xp: adventureProgress.xp + level.rewards.xp,
+    };
+
+    setAdventureProgress(newProgress);
+    await StorageService.saveAdventureProgress(newProgress);
+  };
+
+  // Touch Drag-and-Drop PanResponder Implementation
+  const panResponder = useRef<PanResponderInstance>(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt: GestureResponderEvent) => {
+        const index = activeDragIndexRef.current;
+        const piece = draggedPieceRef.current;
+        const layout = boardLayoutRef.current;
+
+        if (index === null || !piece || !layout) return;
+
+        const touchX = evt.nativeEvent.pageX;
+        const touchY = evt.nativeEvent.pageY;
+
+        setDragLocation({ x: touchX, y: touchY });
+
+        const cellSize = layout.width / Board.SIZE;
+        const pieceWidthPx = piece.width * cellSize;
+        const pieceHeightPx = piece.height * cellSize;
+
+        const boardX = touchX - layout.x - pieceWidthPx / 2 + cellSize / 2;
+        const boardY = touchY - layout.y - pieceHeightPx / 2 + cellSize / 2;
+
+        const c = Math.floor(boardX / cellSize);
+        const r = Math.floor(boardY / cellSize);
+
+        const engine = getActiveEngine();
+
+        if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
+          const valid = engine.getBoard().canPlacePiece(piece, r, c);
+          previewPosRef.current = { r, c };
+          isValidPreviewRef.current = valid;
+          setPreviewPos({ r, c });
+          setIsValidPreview(valid);
+        } else {
+          previewPosRef.current = null;
+          isValidPreviewRef.current = false;
+          setPreviewPos(null);
+          setIsValidPreview(false);
+        }
+      },
+      onPanResponderRelease: () => {
+        const index = activeDragIndexRef.current;
+        const piece = draggedPieceRef.current;
+        const pos = previewPosRef.current;
+        const isValid = isValidPreviewRef.current;
+
+        if (index !== null && piece && pos && isValid) {
+          if (screen === 'ADVENTURE_GAME' && activeLevel) {
+            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+
+                const clearSet = new Set<string>();
+                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+                setClearingCells(clearSet);
+
+                setTimeout(() => setClearingCells(new Set()), 300);
+
+                const scoreId = Date.now();
+                setFloatingScores(prev => [
+                  ...prev,
+                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
+                ]);
+
+                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+              }
+
+              if (moveResult.comboCount > 1) {
+                audio.playCombo(moveResult.comboCount);
+                haptics.combo();
+              }
+
+              // Check level success or failure
+              if (moveResult.isObjectiveComplete) {
+                audio.playClear(3);
+                haptics.clear();
+                handleLevelCompleted(activeLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
+              } else if (moveResult.isGameOver) {
+                audio.playGameOver();
+                haptics.gameOver();
+                setShowFailedModal(true);
+              }
+
+              syncEngineState();
+            }
+          } else {
+            // Classic Game Placement
+            const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
+
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+
+                const clearSet = new Set<string>();
+                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+                setClearingCells(clearSet);
+
+                setTimeout(() => setClearingCells(new Set()), 300);
+
+                const scoreId = Date.now();
+                setFloatingScores(prev => [
+                  ...prev,
+                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
+                ]);
+
+                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+              }
+
+              if (moveResult.comboCount > 1) {
+                audio.playCombo(moveResult.comboCount);
+                haptics.combo();
+              }
+
+              if (moveResult.isGameOver) {
+                audio.playGameOver();
+                haptics.gameOver();
+              }
+
+              syncEngineState();
+            }
+          }
+        }
+
+        activeDragIndexRef.current = null;
+        draggedPieceRef.current = null;
+        previewPosRef.current = null;
+        isValidPreviewRef.current = false;
+
+        setActiveDragIndex(null);
+        setDragLocation(null);
+        setPreviewPos(null);
+        setIsValidPreview(false);
+      },
+      onPanResponderTerminate: () => {
+        activeDragIndexRef.current = null;
+        draggedPieceRef.current = null;
+        previewPosRef.current = null;
+        isValidPreviewRef.current = false;
+
+        setActiveDragIndex(null);
+        setDragLocation(null);
+        setPreviewPos(null);
+        setIsValidPreview(false);
+      },
+    })
+  ).current;
+
+  // Handle start touch on piece slot
+  const handleStartDrag = (index: number, startX: number, startY: number) => {
+    const engine = getActiveEngine();
+    const piece = engine.getTray()[index];
+    if (!piece) return;
+
     audio.playPickup();
     haptics.pickup();
 
+    activeDragIndexRef.current = index;
+    draggedPieceRef.current = piece;
+
     setActiveDragIndex(index);
-    setDragPosition({ x: e.clientX, y: e.clientY });
+    setDragLocation({ x: startX, y: startY });
   };
 
-  const handlePointerMove = useCallback(
-    (e: PointerEvent) => {
-      if (activeDragIndex === null || !draggedPiece || !boardRef.current) return;
-
-      setDragPosition({ x: e.clientX, y: e.clientY });
-
-      // Calculate grid alignment relative to GameBoard bounding rectangle
-      const rect = boardRef.current.getBoundingClientRect();
-      const cellSize = rect.width / Board.SIZE;
-
-      // Offset drag position so piece centers under pointer
-      const pieceWidthPx = draggedPiece.width * cellSize;
-      const pieceHeightPx = draggedPiece.height * cellSize;
-
-      const boardX = e.clientX - rect.left - pieceWidthPx / 2 + cellSize / 2;
-      const boardY = e.clientY - rect.top - pieceHeightPx / 2 + cellSize / 2;
-
-      const c = Math.floor(boardX / cellSize);
-      const r = Math.floor(boardY / cellSize);
-
-      if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
-        setPreviewPos({ r, c });
-        const valid = engineRef.current.getBoard().canPlacePiece(draggedPiece, r, c);
-        setIsValidPreview(valid);
-      } else {
-        setPreviewPos(null);
-        setIsValidPreview(false);
-      }
-    },
-    [activeDragIndex, draggedPiece]
-  );
-
-  const handlePointerUp = useCallback(() => {
-    if (activeDragIndex === null || !draggedPiece) return;
-
-    if (previewPos && isValidPreview) {
-      // Execute placement in engine
-      const moveResult = engineRef.current.placePiece(
-        activeDragIndex,
-        previewPos.r,
-        previewPos.c
-      );
-
-      if (moveResult.success) {
-        audio.playPlace();
-        haptics.place();
-
-        // Line clears trigger sound & haptic feedback
-        if (moveResult.linesCleared > 0) {
-          audio.playClear(moveResult.linesCleared);
-          haptics.clear();
-
-          // Animate line clearing
-          const clearSet = new Set<string>();
-          moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-          setClearingCells(clearSet);
-
-          setTimeout(() => {
-            setClearingCells(new Set());
-          }, 300);
-
-          // Add floating score popup
-          const scoreId = Date.now();
-          setFloatingScores(prev => [
-            ...prev,
-            { id: scoreId, score: moveResult.scoreGained, r: previewPos.r, c: previewPos.c },
-          ]);
-
-          setTimeout(() => {
-            setFloatingScores(prev => prev.filter(item => item.id !== scoreId));
-          }, 800);
-        }
-
-        if (moveResult.comboCount > 1) {
-          audio.playCombo(moveResult.comboCount);
-          haptics.combo();
-        }
-
-        if (moveResult.isGameOver) {
-          audio.playGameOver();
-          haptics.gameOver();
-        }
-
-        syncEngineState();
-      }
-    }
-
-    // Reset drag state
-    setActiveDragIndex(null);
-    setDragPosition(null);
-    setPreviewPos(null);
-    setIsValidPreview(false);
-  }, [activeDragIndex, draggedPiece, previewPos, isValidPreview, syncEngineState]);
-
-  useEffect(() => {
-    if (activeDragIndex !== null) {
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-    }
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [activeDragIndex, handlePointerMove, handlePointerUp]);
+  const activePiece = activeDragIndex !== null ? getActiveEngine().getTray()[activeDragIndex] : null;
 
   return (
-    <div className="app-container">
-      {status === 'MENU' ? (
-        <MainMenu stats={stats} onPlay={handleStartGame} />
-      ) : (
-        <>
-          <GameHeader
-            score={score}
-            highScore={highScore}
-            comboCount={comboCount}
-            soundEnabled={soundEnabled}
-            onToggleSound={handleToggleSound}
-            onPause={() => setStatus('MENU')}
-            onRestart={handleStartGame}
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.container}>
+        {screen === 'MENU' && (
+          <MainMenu
+            stats={stats}
+            onPlayClassic={handleStartClassic}
+            onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
           />
+        )}
 
-          <GameBoard
-            board={engineRef.current.getBoard()}
-            draggedPiece={draggedPiece}
-            previewPos={previewPos}
-            isValidPreview={isValidPreview}
-            clearingCells={clearingCells}
-            floatingScores={floatingScores}
-            boardRef={boardRef}
+        {screen === 'ADVENTURE_MAP' && (
+          <AdventureMap
+            world={WORLD_1_DATA}
+            progress={adventureProgress}
+            onSelectLevel={handleStartAdventureLevel}
+            onBack={() => setScreen('MENU')}
           />
+        )}
 
-          <PieceTray
-            tray={engineRef.current.getTray()}
-            activeDragIndex={activeDragIndex}
-            onStartDrag={handleStartDrag}
-          />
-
-          {/* Floating Dragging Piece Overlay */}
-          {activeDragIndex !== null && draggedPiece && dragPosition && (
-            <div
-              className="drag-overlay"
-              style={{
-                position: 'fixed',
-                left: dragPosition.x,
-                top: dragPosition.y,
-                transform: 'translate(-50%, -50%)',
-                pointerEvents: 'none',
-                zIndex: 1000,
-              }}
-            >
-              <PieceComponent piece={draggedPiece} isDragging={true} scale={1.1} />
-            </div>
-          )}
-
-          {status === 'GAMEOVER' && (
-            <GameOverModal
+        {(screen === 'CLASSIC' || screen === 'ADVENTURE_GAME') && (
+          <View style={styles.gameContainer} {...panResponder.panHandlers}>
+            <GameHeader
               score={score}
               highScore={highScore}
-              isNewHighScore={score >= highScore && score > 0}
-              stats={stats}
-              onPlayAgain={handleStartGame}
-              onHome={() => setStatus('MENU')}
+              comboCount={comboCount}
+              soundEnabled={soundEnabled}
+              onToggleSound={handleToggleSound}
+              onPause={() => setScreen('MENU')}
+              onRestart={() => {
+                if (screen === 'ADVENTURE_GAME' && activeLevel) {
+                  adventureEngineRef.current.startLevel(activeLevel);
+                } else {
+                  classicEngineRef.current.startNewGame();
+                }
+                syncEngineState();
+              }}
             />
-          )}
-        </>
-      )}
 
-      <style>{`
-        .app-container {
-          width: 100%;
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          position: relative;
-        }
-      `}</style>
-    </div>
+            {/* In-Game Objective HUD for Adventure Mode */}
+            {screen === 'ADVENTURE_GAME' && activeLevel && (
+              <View style={styles.objectiveHud}>
+                <Text style={styles.objectiveHudText}>
+                  🎯 {activeLevel.name} • {ObjectiveEvaluator.getObjectiveProgress(activeLevel.objective, adventureEngineRef.current.getGameplayStats())}% Objective
+                </Text>
+                {adventureEngineRef.current.getMovesRemaining() !== null && (
+                  <Text style={styles.movesHudText}>
+                    ⚡ {adventureEngineRef.current.getMovesRemaining()} Moves
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <GameBoard
+              board={getActiveEngine().getBoard()}
+              draggedPiece={activePiece}
+              previewPos={previewPos}
+              isValidPreview={isValidPreview}
+              clearingCells={clearingCells}
+              floatingScores={floatingScores}
+              onLayoutBoard={(x: number, y: number, width: number, height: number) => {
+                boardLayoutRef.current = { x, y, width, height };
+              }}
+            />
+
+            <PieceTray
+              tray={getActiveEngine().getTray()}
+              activeDragIndex={activeDragIndex}
+              onGrantTouch={handleStartDrag}
+            />
+
+            {/* Dragging Piece Floating Overlay */}
+            {activeDragIndex !== null && activePiece && dragLocation && (
+              <View
+                style={[
+                  styles.dragOverlay,
+                  {
+                    left: dragLocation.x - 60,
+                    top: dragLocation.y - 80,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                <PieceComponent piece={activePiece} isDragging={true} scale={1.1} />
+              </View>
+            )}
+
+            {/* Classic Mode Game Over Modal */}
+            {screen === 'CLASSIC' && status === 'GAMEOVER' && (
+              <GameOverModal
+                score={score}
+                highScore={highScore}
+                isNewHighScore={score >= highScore && score > 0}
+                stats={stats}
+                onPlayAgain={handleStartClassic}
+                onHome={() => setScreen('MENU')}
+              />
+            )}
+
+            {/* Adventure Level Modals */}
+            {showSuccessModal && activeLevel && (
+              <LevelSuccessModal
+                level={activeLevel}
+                score={score}
+                stars={completedStars}
+                coinsEarned={activeLevel.rewards.coins}
+                xpEarned={activeLevel.rewards.xp}
+                hasNextLevel={activeLevel.levelNumber < WORLD_1_DATA.levels.length}
+                onNextLevel={() => {
+                  setShowSuccessModal(false);
+                  const nextLvl = WORLD_1_DATA.levels.find(l => l.levelNumber === activeLevel.levelNumber + 1);
+                  if (nextLvl) {
+                    handleStartAdventureLevel(nextLvl);
+                  } else {
+                    setScreen('ADVENTURE_MAP');
+                  }
+                }}
+                onReplay={() => {
+                  setShowSuccessModal(false);
+                  adventureEngineRef.current.startLevel(activeLevel);
+                  syncEngineState();
+                }}
+                onMap={() => {
+                  setShowSuccessModal(false);
+                  setScreen('ADVENTURE_MAP');
+                }}
+              />
+            )}
+
+            {showFailedModal && activeLevel && (
+              <LevelFailedModal
+                level={activeLevel}
+                score={score}
+                onRetry={() => {
+                  setShowFailedModal(false);
+                  adventureEngineRef.current.startLevel(activeLevel);
+                  syncEngineState();
+                }}
+                onMap={() => {
+                  setShowFailedModal(false);
+                  setScreen('ADVENTURE_MAP');
+                }}
+              />
+            )}
+          </View>
+        )}
+
+        {/* Level Start Pre-Game Dialog */}
+        {showLevelStartModal && activeLevel && (
+          <LevelStartModal
+            level={activeLevel}
+            onStart={handleConfirmStartAdventureLevel}
+            onClose={() => setShowLevelStartModal(false)}
+          />
+        )}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0d0f17',
+  },
+  gameContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  objectiveHud: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(0, 240, 255, 0.1)',
+    marginHorizontal: 20,
+    borderRadius: 12,
+  },
+  objectiveHudText: {
+    color: '#00F0FF',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  movesHudText: {
+    color: '#FF007F',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  dragOverlay: {
+    position: 'absolute',
+    zIndex: 1000,
+  },
+});
