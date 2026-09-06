@@ -116,7 +116,6 @@ out
 .tern-port
 
 # Stores VSCode versions available for testing
-.vscode-test
 
 # yarn output
 .yarn/*
@@ -130,3 +129,15 @@ out
 dist
 dist-ssr
 *.local
+
+# Android build outputs
+android/
+android/.gradle
+android/build
+android/app/build
+android/captures
+!block-nova-debug.apk
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
