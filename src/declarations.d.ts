@@ -11,6 +11,7 @@ declare module 'react-native' {
   export type AppStateStatus = any;
   export const PanResponder: any;
   export type PanResponderInstance = any;
+  export const Animated: any;
   export type GestureResponderEvent = any;
   export type LayoutChangeEvent = any;
 }

@@ -10,6 +10,7 @@ export interface GameBoardProps {
   isValidPreview: boolean;
   clearingCells: Set<string>;
   floatingScores: { id: number; score: number; r: number; c: number }[];
+  splashOverlay?: { id: number; text: string; subtext?: string } | null;
   onLayoutBoard: (x: number, y: number, width: number, height: number) => void;
 }
 
@@ -20,6 +21,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   isValidPreview,
   clearingCells,
   floatingScores,
+  splashOverlay,
   onLayoutBoard,
 }) => {
   const grid = board.getGrid();
@@ -123,6 +125,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <Text style={styles.floatingScoreText}>+{item.score}</Text>
           </View>
         ))}
+
+        {splashOverlay && (
+          <View key={splashOverlay.id} style={styles.splashContainer} pointerEvents="none">
+            <Text style={styles.splashTitle}>{splashOverlay.text}</Text>
+            {splashOverlay.subtext && (
+              <Text style={styles.splashSubtitle}>{splashOverlay.subtext}</Text>
+            )}
+          </View>
+        )}
       </View>
     </View>
   );
@@ -166,5 +177,33 @@ const styles = StyleSheet.create({
     color: '#FFB800',
     fontWeight: '900',
     fontSize: 20,
+  },
+  splashContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderRadius: 18,
+    zIndex: 50,
+  },
+  splashTitle: {
+    color: '#00F0FF',
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textShadowColor: '#FF007F',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  splashSubtitle: {
+    color: '#FFB800',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 3,
+    marginTop: 4,
   },
 });

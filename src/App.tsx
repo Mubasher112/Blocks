@@ -27,6 +27,7 @@ import { PieceTray } from './components/PieceTray';
 import { PieceComponent } from './components/Piece';
 import { MainMenu } from './components/MainMenu';
 import { GameOverModal } from './components/GameOverModal';
+import { SplashScreen } from './components/SplashScreen';
 
 import { AdventureMap } from './components/adventure/AdventureMap';
 import { LevelStartModal } from './components/adventure/LevelStartModal';
@@ -74,6 +75,7 @@ export const App: React.FC = () => {
   const adventureEngineRef = useRef<AdventureEngine>(new AdventureEngine());
 
   // Active Screen & Player State
+  const [showSplash, setShowSplash] = useState<boolean>(true);
   const [screen, setScreen] = useState<ScreenState>('MENU');
   const [activeLevel, setActiveLevel] = useState<AdventureLevel | null>(null);
   const [player, setPlayer] = useState<PlayerProfile | null>(null);
@@ -137,6 +139,7 @@ export const App: React.FC = () => {
   const [floatingScores, setFloatingScores] = useState<
     { id: number; score: number; r: number; c: number }[]
   >([]);
+  const [splashOverlay, setSplashOverlay] = useState<{ id: number; text: string; subtext?: string } | null>(null);
 
   // Refs for tracking drag state inside PanResponder handlers
   const activeDragIndexRef = useRef<number | null>(null);
@@ -484,6 +487,23 @@ export const App: React.FC = () => {
                 ]);
 
                 setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+
+                // Splash text overlay feedback
+                let splashTitle = '';
+                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
+                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+
+                if (splashTitle && splashType) {
+                  const splashId = Date.now();
+                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                  audio.playSplashAudio(splashType);
+                  setTimeout(() => setSplashOverlay(null), 1000);
+                }
               }
 
               if (moveResult.comboCount > 1) {
@@ -529,6 +549,23 @@ export const App: React.FC = () => {
                 ]);
 
                 setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+
+                // Splash text overlay feedback
+                let splashTitle = '';
+                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
+                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+
+                if (splashTitle && splashType) {
+                  const splashId = Date.now();
+                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                  audio.playSplashAudio(splashType);
+                  setTimeout(() => setSplashOverlay(null), 1000);
+                }
               }
 
               if (moveResult.comboCount > 1) {
@@ -570,8 +607,30 @@ export const App: React.FC = () => {
     })
   ).current;
 
+  // Measure container offset whenever active screen changes or on drag start
+  const updateContainerMeasurement = useCallback(() => {
+    if (gameContainerRef.current && gameContainerRef.current.measureInWindow) {
+      gameContainerRef.current.measureInWindow((x: number, y: number) => {
+        if (x >= 0 && y >= 0) {
+          containerLayoutRef.current = { x, y };
+        }
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') {
+      const timer = setTimeout(updateContainerMeasurement, 150);
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+    return undefined;
+  }, [screen, updateContainerMeasurement]);
+
   // Handle start touch on piece slot
   const handleStartDrag = (index: number, startX: number, startY: number) => {
+    updateContainerMeasurement();
     const engine = getActiveEngine();
     const piece = engine.getTray()[index];
     if (!piece) return;
@@ -606,7 +665,11 @@ export const App: React.FC = () => {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <SafeAreaView style={styles.container}>
-        {screen === 'MENU' && (
+        {showSplash ? (
+          <SplashScreen onFinish={() => setShowSplash(false)} />
+        ) : (
+          <>
+            {screen === 'MENU' && (
           <MainMenu
             stats={stats}
             player={player}
@@ -768,6 +831,7 @@ export const App: React.FC = () => {
               isValidPreview={isValidPreview}
               clearingCells={clearingCells}
               floatingScores={floatingScores}
+              splashOverlay={splashOverlay}
               onLayoutBoard={(x: number, y: number, width: number, height: number) => {
                 boardLayoutRef.current = { x, y, width, height };
               }}
@@ -946,6 +1010,8 @@ export const App: React.FC = () => {
           }}
           onCancel={() => setShowWildPicker(false)}
         />
+          </>
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
