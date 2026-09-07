@@ -843,26 +843,6 @@ export const App: React.FC = () => {
               onGrantTouch={handleStartDrag}
             />
 
-            {/* Dragging Piece Floating Overlay */}
-            {activeDragIndex !== null && activePiece && dragLocation && (
-              <View
-                style={[
-                  styles.dragOverlay,
-                  {
-                    left: dragLocation.x - containerLayoutRef.current.x,
-                    top: dragLocation.y - containerLayoutRef.current.y,
-                  },
-                ]}
-                pointerEvents="none"
-              >
-                <PieceComponent
-                  piece={activePiece}
-                  isDragging={true}
-                  scale={1.0}
-                  cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
-                />
-              </View>
-            )}
 
             {/* Classic Mode Game Over Modal */}
             {screen === 'CLASSIC' && status === 'GAMEOVER' && (
@@ -1010,6 +990,27 @@ export const App: React.FC = () => {
           }}
           onCancel={() => setShowWildPicker(false)}
         />
+
+        {/* Global Root Floating Drag Overlay */}
+        {activeDragIndex !== null && activePiece && dragLocation && (
+          <View
+            style={[
+              styles.dragOverlay,
+              {
+                left: dragLocation.x,
+                top: dragLocation.y,
+              },
+            ]}
+            pointerEvents="none"
+          >
+            <PieceComponent
+              piece={activePiece}
+              isDragging={true}
+              scale={1.0}
+              cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
+            />
+          </View>
+        )}
           </>
         )}
       </SafeAreaView>
@@ -1052,6 +1053,6 @@ const styles = StyleSheet.create({
   },
   dragOverlay: {
     position: 'absolute',
-    zIndex: 1000,
+    zIndex: 9999,
   },
 });
