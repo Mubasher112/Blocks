@@ -156,6 +156,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     width: '100%',
+    marginVertical: 10,
     touchAction: 'none',
     userSelect: 'none',
   } as any,

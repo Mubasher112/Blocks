@@ -880,10 +880,8 @@ export const App: React.FC = () => {
     const cleanup = () => {
       window.removeEventListener('pointermove', onMove, true);
       window.removeEventListener('pointerup', onEnd, true);
-      window.removeEventListener('pointercancel', onEnd, true);
       document.removeEventListener('pointermove', onMove, true);
       document.removeEventListener('pointerup', onEnd, true);
-      document.removeEventListener('pointercancel', onEnd, true);
 
       window.removeEventListener('touchmove', onMove, true);
       window.removeEventListener('touchend', onEnd, true);
@@ -906,10 +904,8 @@ export const App: React.FC = () => {
     // Register capture phase listeners on BOTH window and document
     window.addEventListener('pointermove', onMove, { passive: false, capture: true });
     window.addEventListener('pointerup', onEnd, { capture: true });
-    window.addEventListener('pointercancel', onEnd, { capture: true });
     document.addEventListener('pointermove', onMove, { passive: false, capture: true });
     document.addEventListener('pointerup', onEnd, { capture: true });
-    document.addEventListener('pointercancel', onEnd, { capture: true });
 
     window.addEventListener('touchmove', onMove, { passive: false, capture: true });
     window.addEventListener('touchend', onEnd, { capture: true });
@@ -1370,6 +1366,7 @@ const styles = StyleSheet.create({
   gameContainer: {
     flex: 1,
     position: 'relative',
+    justifyContent: 'space-between',
     touchAction: 'none',
     userSelect: 'none',
   } as any,
