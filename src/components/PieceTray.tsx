@@ -20,6 +20,18 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
         <View
           key={index}
           style={styles.traySlot}
+          onPointerDown={(e: any) => {
+            if (piece && activeDragIndex === null) {
+              if (e.target && typeof e.target.setPointerCapture === 'function' && e.pointerId !== undefined) {
+                try {
+                  e.target.setPointerCapture(e.pointerId);
+                } catch (_) {}
+              }
+              const pageX = e.pageX ?? e.clientX ?? 0;
+              const pageY = e.pageY ?? e.clientY ?? 0;
+              onGrantTouch(index, pageX, pageY);
+            }
+          }}
           onTouchStart={(e: any) => {
             if (piece && activeDragIndex === null) {
               if (e.cancelable) e.preventDefault();
@@ -50,8 +62,15 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
             }
           }}
         >
-          {piece && activeDragIndex !== index && (
-            <PieceComponent piece={piece} scale={0.8} />
+          {piece && (
+            <View
+              style={{
+                opacity: activeDragIndex === index ? 0 : 1,
+                pointerEvents: activeDragIndex === index ? 'none' : 'auto',
+              } as any}
+            >
+              <PieceComponent piece={piece} scale={0.8} />
+            </View>
           )}
         </View>
       ))}

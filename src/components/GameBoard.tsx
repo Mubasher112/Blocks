@@ -159,7 +159,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     width: '100%',
-  },
+    touchAction: 'none',
+    userSelect: 'none',
+  } as any,
   boardGrid: {
     width: '100%',
     aspectRatio: 1,
@@ -171,7 +173,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
     gap: 4,
-  },
+    touchAction: 'none',
+    userSelect: 'none',
+  } as any,
   boardRow: {
     flex: 1,
     flexDirection: 'row',

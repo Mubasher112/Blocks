@@ -572,185 +572,7 @@ export const App: React.FC = () => {
     const currentScreen = screenRef.current;
     const currentPlayer = playerRef.current;
 
-    if (index !== null && piece && pos && isValid) {
-      if (currentScreen === 'DAILY_GAME' && dailyChallengeRef.current) {
-        const currentChallenge = dailyChallengeRef.current;
-        const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-        if (moveResult.success) {
-          audio.playPlace();
-          haptics.place();
-
-          if (moveResult.linesCleared > 0) {
-            audio.playClear(moveResult.linesCleared);
-            haptics.clear();
-
-            const clearSet = new Set<string>();
-            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-            setClearingCells(clearSet);
-            setTimeout(() => setClearingCells(new Set()), 300);
-
-            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-            const scoreId = Date.now();
-            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-            let splashTitle: string | undefined;
-            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-            if (splashTitle && splashType) {
-              const splashId = Date.now();
-              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-              audio.playSplashAudio(splashType);
-              setTimeout(() => setSplashOverlay(null), 1000);
-            }
-          }
-
-          if (moveResult.comboCount > 1) {
-            audio.playCombo(moveResult.comboCount);
-            haptics.combo();
-          }
-
-          if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
-            const finalScore = adventureEngineRef.current.getScore();
-            setDailyCompleted(moveResult.isObjectiveComplete);
-
-            if (currentPlayer) {
-              const res = await DailyChallengeService.submitResult(
-                currentPlayer,
-                currentChallenge.id,
-                finalScore,
-                adventureEngineRef.current.getGameplayStats().linesCleared,
-                adventureEngineRef.current.getGameplayStats().movesUsed,
-                moveResult.isObjectiveComplete
-              );
-              setDailyBestScore(res.bestScore);
-              setDailyStreak(res.streakInfo);
-            }
-
-            setShowDailyResultModal(true);
-          }
-
-          await syncEngineState();
-        }
-      } else if (currentScreen === 'ADVENTURE_GAME' && activeLevelRef.current) {
-        const currentLevel = activeLevelRef.current;
-        const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-
-        if (moveResult.success) {
-          audio.playPlace();
-          haptics.place();
-
-          if (moveResult.linesCleared > 0) {
-            audio.playClear(moveResult.linesCleared);
-            haptics.clear();
-
-            const clearSet = new Set<string>();
-            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-            setClearingCells(clearSet);
-            setTimeout(() => setClearingCells(new Set()), 300);
-
-            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-            const scoreId = Date.now();
-            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-            let splashTitle: string | undefined;
-            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-            if (splashTitle && splashType) {
-              const splashId = Date.now();
-              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-              audio.playSplashAudio(splashType);
-              setTimeout(() => setSplashOverlay(null), 1000);
-            }
-          }
-
-          if (moveResult.comboCount > 1) {
-            audio.playCombo(moveResult.comboCount);
-            haptics.combo();
-          }
-
-          if (moveResult.isObjectiveComplete) {
-            audio.playClear(3);
-            haptics.clear();
-            await handleLevelCompleted(currentLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
-          } else if (moveResult.isGameOver) {
-            audio.playGameOver();
-            haptics.gameOver();
-            setShowFailedModal(true);
-          }
-
-          await syncEngineState();
-        }
-      } else {
-        // Classic Game Placement
-        const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
-
-        if (moveResult.success) {
-          audio.playPlace();
-          haptics.place();
-
-          if (moveResult.linesCleared > 0) {
-            audio.playClear(moveResult.linesCleared);
-            haptics.clear();
-
-            const clearSet = new Set<string>();
-            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-            setClearingCells(clearSet);
-            setTimeout(() => setClearingCells(new Set()), 300);
-
-            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-            const scoreId = Date.now();
-            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-            let splashTitle: string | undefined;
-            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-            if (splashTitle && splashType) {
-              const splashId = Date.now();
-              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-              audio.playSplashAudio(splashType);
-              setTimeout(() => setSplashOverlay(null), 1000);
-            }
-          }
-
-          if (moveResult.comboCount > 1) {
-            audio.playCombo(moveResult.comboCount);
-            haptics.combo();
-          }
-
-          if (moveResult.isGameOver) {
-            audio.playGameOver();
-            haptics.gameOver();
-          }
-
-          await syncEngineState();
-        }
-      }
-    }
-
+    // Reset drag state immediately so the floating piece disappears and the slot un-hides instantly
     activeDragIndexRef.current = null;
     draggedPieceRef.current = null;
     previewPosRef.current = null;
@@ -760,11 +582,203 @@ export const App: React.FC = () => {
     setDragLocation(null);
     setPreviewPos(null);
     setIsValidPreview(false);
+
+    try {
+      if (index !== null && piece && pos && isValid) {
+        if (currentScreen === 'DAILY_GAME' && dailyChallengeRef.current) {
+          const currentChallenge = dailyChallengeRef.current;
+          const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+          if (moveResult.success) {
+            audio.playPlace();
+            haptics.place();
+
+            if (moveResult.linesCleared > 0) {
+              audio.playClear(moveResult.linesCleared);
+              haptics.clear();
+
+              const clearSet = new Set<string>();
+              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+              setClearingCells(clearSet);
+              setTimeout(() => setClearingCells(new Set()), 300);
+
+              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+              const scoreId = Date.now();
+              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
+
+              let splashTitle: string | undefined;
+              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+              if (splashTitle && splashType) {
+                const splashId = Date.now();
+                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                audio.playSplashAudio(splashType);
+                setTimeout(() => setSplashOverlay(null), 1000);
+              }
+            }
+
+            if (moveResult.comboCount > 1) {
+              audio.playCombo(moveResult.comboCount);
+              haptics.combo();
+            }
+
+            if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
+              const finalScore = adventureEngineRef.current.getScore();
+              setDailyCompleted(moveResult.isObjectiveComplete);
+
+              if (currentPlayer) {
+                const res = await DailyChallengeService.submitResult(
+                  currentPlayer,
+                  currentChallenge.id,
+                  finalScore,
+                  adventureEngineRef.current.getGameplayStats().linesCleared,
+                  adventureEngineRef.current.getGameplayStats().movesUsed,
+                  moveResult.isObjectiveComplete
+                );
+                setDailyBestScore(res.bestScore);
+                setDailyStreak(res.streakInfo);
+              }
+
+              setShowDailyResultModal(true);
+            }
+
+            await syncEngineState();
+          }
+        } else if (currentScreen === 'ADVENTURE_GAME' && activeLevelRef.current) {
+          const currentLevel = activeLevelRef.current;
+          const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+
+          if (moveResult.success) {
+            audio.playPlace();
+            haptics.place();
+
+            if (moveResult.linesCleared > 0) {
+              audio.playClear(moveResult.linesCleared);
+              haptics.clear();
+
+              const clearSet = new Set<string>();
+              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+              setClearingCells(clearSet);
+              setTimeout(() => setClearingCells(new Set()), 300);
+
+              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+              const scoreId = Date.now();
+              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
+
+              let splashTitle: string | undefined;
+              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+              if (splashTitle && splashType) {
+                const splashId = Date.now();
+                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                audio.playSplashAudio(splashType);
+                setTimeout(() => setSplashOverlay(null), 1000);
+              }
+            }
+
+            if (moveResult.comboCount > 1) {
+              audio.playCombo(moveResult.comboCount);
+              haptics.combo();
+            }
+
+            if (moveResult.isObjectiveComplete) {
+              audio.playClear(3);
+              haptics.clear();
+              await handleLevelCompleted(currentLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
+            } else if (moveResult.isGameOver) {
+              audio.playGameOver();
+              haptics.gameOver();
+              setShowFailedModal(true);
+            }
+
+            await syncEngineState();
+          }
+        } else {
+          // Classic Game Placement
+          const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
+
+          if (moveResult.success) {
+            audio.playPlace();
+            haptics.place();
+
+            if (moveResult.linesCleared > 0) {
+              audio.playClear(moveResult.linesCleared);
+              haptics.clear();
+
+              const clearSet = new Set<string>();
+              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+              setClearingCells(clearSet);
+              setTimeout(() => setClearingCells(new Set()), 300);
+
+              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+              const scoreId = Date.now();
+              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
+
+              let splashTitle: string | undefined;
+              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+              if (splashTitle && splashType) {
+                const splashId = Date.now();
+                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                audio.playSplashAudio(splashType);
+                setTimeout(() => setSplashOverlay(null), 1000);
+              }
+            }
+
+            if (moveResult.comboCount > 1) {
+              audio.playCombo(moveResult.comboCount);
+              haptics.combo();
+            }
+
+            if (moveResult.isGameOver) {
+              audio.playGameOver();
+              haptics.gameOver();
+            }
+
+            await syncEngineState();
+          }
+        }
+      } else {
+        // Dropped outside board or in between grid and tray (invalid drop)
+        // Clean snap back to tray
+        haptics.snapBack();
+      }
+    } catch (err) {
+      console.warn('Error during piece placement release:', err);
+    }
   }, [handleLevelCompleted, syncEngineState]);
 
   // Fast, Block-Blast-style single-touch drag interaction
   const handleStartDrag = useCallback((index: number, startX: number, startY: number) => {
     if (typeof startX !== 'number' || isNaN(startX) || typeof startY !== 'number' || isNaN(startY)) {
+      return;
+    }
+
+    // Ignore redundant start calls if drag is already active
+    if (activeDragIndexRef.current !== null) {
       return;
     }
 
@@ -787,46 +801,90 @@ export const App: React.FC = () => {
       dragCleanupRef.current = null;
     }
 
-    const onTouchMove = (moveEvt: TouchEvent) => {
+    const onMove = (moveEvt: any) => {
       if (moveEvt.cancelable) {
         moveEvt.preventDefault();
       }
-      const touch = moveEvt.touches[0] || moveEvt.changedTouches[0];
-      if (touch) {
-        updateDragPosition(touch.pageX, touch.pageY);
+      let pageX: number | undefined;
+      let pageY: number | undefined;
+
+      if (moveEvt.touches && moveEvt.touches.length > 0) {
+        pageX = moveEvt.touches[0].pageX;
+        pageY = moveEvt.touches[0].pageY;
+      } else if (moveEvt.changedTouches && moveEvt.changedTouches.length > 0) {
+        pageX = moveEvt.changedTouches[0].pageX;
+        pageY = moveEvt.changedTouches[0].pageY;
+      } else if (typeof moveEvt.pageX === 'number') {
+        pageX = moveEvt.pageX;
+        pageY = moveEvt.pageY;
+      } else if (typeof moveEvt.clientX === 'number') {
+        pageX = moveEvt.clientX;
+        pageY = moveEvt.clientY;
+      }
+
+      if (typeof pageX === 'number' && !isNaN(pageX) && typeof pageY === 'number' && !isNaN(pageY)) {
+        updateDragPosition(pageX, pageY);
       }
     };
 
-    const onTouchEnd = async () => {
-      cleanup();
-      await handleReleaseDrag();
-    };
-
-    const onMouseMove = (moveEvt: MouseEvent) => {
-      updateDragPosition(moveEvt.pageX, moveEvt.pageY);
-    };
-
-    const onMouseUp = async () => {
-      cleanup();
+    const onEnd = async (endEvt?: any) => {
+      if (endEvt && endEvt.cancelable) {
+        endEvt.preventDefault();
+      }
+      if (dragCleanupRef.current) {
+        dragCleanupRef.current();
+        dragCleanupRef.current = null;
+      }
       await handleReleaseDrag();
     };
 
     const cleanup = () => {
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
-      window.removeEventListener('touchcancel', onTouchEnd);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onEnd, true);
+      window.removeEventListener('pointercancel', onEnd, true);
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', onEnd, true);
+      document.removeEventListener('pointercancel', onEnd, true);
+
+      window.removeEventListener('touchmove', onMove, true);
+      window.removeEventListener('touchend', onEnd, true);
+      window.removeEventListener('touchcancel', onEnd, true);
+      document.removeEventListener('touchmove', onMove, true);
+      document.removeEventListener('touchend', onEnd, true);
+      document.removeEventListener('touchcancel', onEnd, true);
+
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', onEnd, true);
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onEnd, true);
+
+      window.removeEventListener('blur', onEnd);
       dragCleanupRef.current = null;
     };
 
     dragCleanupRef.current = cleanup;
 
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
-    window.addEventListener('touchcancel', onTouchEnd);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    // Register capture phase listeners on BOTH window and document
+    window.addEventListener('pointermove', onMove, { passive: false, capture: true });
+    window.addEventListener('pointerup', onEnd, { capture: true });
+    window.addEventListener('pointercancel', onEnd, { capture: true });
+    document.addEventListener('pointermove', onMove, { passive: false, capture: true });
+    document.addEventListener('pointerup', onEnd, { capture: true });
+    document.addEventListener('pointercancel', onEnd, { capture: true });
+
+    window.addEventListener('touchmove', onMove, { passive: false, capture: true });
+    window.addEventListener('touchend', onEnd, { capture: true });
+    window.addEventListener('touchcancel', onEnd, { capture: true });
+    document.addEventListener('touchmove', onMove, { passive: false, capture: true });
+    document.addEventListener('touchend', onEnd, { capture: true });
+    document.addEventListener('touchcancel', onEnd, { capture: true });
+
+    window.addEventListener('mousemove', onMove, { capture: true });
+    window.addEventListener('mouseup', onEnd, { capture: true });
+    document.addEventListener('mousemove', onMove, { capture: true });
+    document.addEventListener('mouseup', onEnd, { capture: true });
+
+    window.addEventListener('blur', onEnd);
   }, [getActiveEngine, handleReleaseDrag, updateDragPosition]);
 
   useEffect(() => {
@@ -1264,11 +1322,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0d0f17',
-  },
+    touchAction: 'none',
+    userSelect: 'none',
+  } as any,
   gameContainer: {
     flex: 1,
     position: 'relative',
-  },
+    touchAction: 'none',
+    userSelect: 'none',
+  } as any,
   novaContainer: {
     paddingHorizontal: 16,
     marginTop: 4,

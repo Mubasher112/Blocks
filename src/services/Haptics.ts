@@ -27,6 +27,10 @@ export class HapticsService {
     this.vibrate(10);
   }
 
+  public snapBack(): void {
+    this.vibrate(8);
+  }
+
   public place(): void {
     this.vibrate(20);
   }
