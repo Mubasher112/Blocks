@@ -303,4 +303,14 @@ export class NovaEngine {
     this.isPrismArmed = false;
     this.undoSnapshot = null;
   }
+
+  public restoreState(state: NovaState): void {
+    this.energy = state.energy;
+    this.status = state.status;
+    this.remainingTurns = state.remainingTurns;
+    this.activePowers = [...state.activePowers];
+    this.consumedPowers = [...state.consumedPowers];
+    this.isPrismArmed = state.isPrismArmed;
+    this.activationCount = state.activationCount;
+  }
 }

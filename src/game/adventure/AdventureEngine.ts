@@ -2,6 +2,7 @@ import { GameEngine, MoveResult } from '../GameEngine';
 import { Board } from '../Board';
 import { AdventureLevel } from './AdventureTypes';
 import { ObjectiveEvaluator, GameplayStats } from './ObjectiveEvaluator';
+import { NovaActionResult } from '../nova/NovaTypes';
 
 export interface AdventureMoveResult extends MoveResult {
   isObjectiveComplete: boolean;
@@ -46,7 +47,7 @@ export class AdventureEngine extends GameEngine {
         }
       }
 
-      (this as any).board = new Board(grid);
+      this.board = new Board(grid);
     }
   }
 
@@ -101,6 +102,20 @@ export class AdventureEngine extends GameEngine {
       starsEarned: stars,
       movesRemaining: movesLeft,
     };
+  }
+
+  public override executePulse(r: number, c: number): NovaActionResult {
+    const result = super.executePulse(r, c);
+    if (result.success && result.linesCleared && result.linesCleared > 0) {
+      this.levelLinesCleared += result.linesCleared;
+    }
+    if (this.currentLevel) {
+      const currentStats = this.getGameplayStats();
+      if (ObjectiveEvaluator.isObjectiveComplete(this.currentLevel.objective, currentStats)) {
+        this.isLevelComplete = true;
+      }
+    }
+    return result;
   }
 
   public getGameplayStats(): GameplayStats {

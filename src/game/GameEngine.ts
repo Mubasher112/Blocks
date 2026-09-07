@@ -6,6 +6,7 @@ import { ComboTracker } from './Combo';
 import { NovaEngine } from './nova/NovaEngine';
 import { NovaActionResult } from './nova/NovaTypes';
 import { NOVA_CONFIG } from './nova/NovaConfig';
+import { PIECE_LIBRARY } from './PieceLibrary';
 
 export interface GameStats {
   gamesPlayed: number;
@@ -31,19 +32,19 @@ export interface MoveResult {
 export type GameStatus = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER';
 
 export class GameEngine {
-  private board: Board;
-  private generator: PieceGenerator;
-  private scoring: Scoring;
-  private comboTracker: ComboTracker;
-  private novaEngine: NovaEngine;
+  protected board: Board;
+  protected generator: PieceGenerator;
+  protected scoring: Scoring;
+  protected comboTracker: ComboTracker;
+  protected novaEngine: NovaEngine;
 
-  private score: number = 0;
-  private highScore: number = 0;
-  private tray: (Piece | null)[] = [null, null, null];
-  private status: GameStatus = 'MENU';
+  protected score: number = 0;
+  protected highScore: number = 0;
+  protected tray: (Piece | null)[] = [null, null, null];
+  protected status: GameStatus = 'MENU';
 
   // Game Statistics
-  private stats: GameStats = {
+  protected stats: GameStats = {
     gamesPlayed: 0,
     totalLinesCleared: 0,
     totalBlocksPlaced: 0,
@@ -355,5 +356,48 @@ export class GameEngine {
 
   public setStatus(status: GameStatus): void {
     this.status = status;
+  }
+
+  public restoreActiveGame(state: {
+    score: number;
+    highScore: number;
+    comboCount: number;
+    grid: { state: string; color: string | null }[][];
+    trayShapes: (string | null)[];
+    stats: GameStats;
+    novaState?: any;
+    saveVersion?: number;
+  }): void {
+    this.score = state.score;
+    this.highScore = state.highScore;
+    this.comboTracker = new ComboTracker(state.comboCount, state.stats.longestCombo);
+    this.status = 'PLAYING';
+    this.stats = { ...state.stats };
+
+    for (let r = 0; r < Board.SIZE; r++) {
+      for (let c = 0; c < Board.SIZE; c++) {
+        const savedCell = state.grid[r]?.[c];
+        if (savedCell && (savedCell.state === 'OCCUPIED' || savedCell.state === 'FILLED')) {
+          this.board.setCell(r, c, 'OCCUPIED', savedCell.color);
+        } else {
+          this.board.setCell(r, c, 'EMPTY', null);
+        }
+      }
+    }
+
+    this.tray = state.trayShapes.map((shapeId, idx) => {
+      if (!shapeId) return null;
+      const def = PIECE_LIBRARY.find(p => p.id === shapeId);
+      if (!def) return null;
+      return new Piece(def, `restored-${idx}-${Date.now()}`);
+    });
+
+    if (this.tray.every(p => p === null)) {
+      this.tray = this.generator.generateTray();
+    }
+
+    if (state.novaState) {
+      this.novaEngine.restoreState(state.novaState);
+    }
   }
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DailyChallengeGenerator } from '../game/events/DailyChallengeGenerator';
 import { DailyChallengeService } from '../services/backend/DailyChallengeService';
 import { PlayerProfile } from '../services/backend/AuthService';
+import { AdventureEngine } from '../game/adventure/AdventureEngine';
 
 describe('Daily Challenge & Event System', () => {
   const dummyPlayer: PlayerProfile = {
@@ -106,6 +107,12 @@ describe('Daily Challenge & Event System', () => {
 
       expect(res3.bestScore).toBe(6200);
     });
+
+    it('retrieves player best score via getPlayerDailyBest', async () => {
+      const challenge = DailyChallengeGenerator.generateForDate('2026-09-05');
+      const best = await DailyChallengeService.getPlayerDailyBest(challenge.id);
+      expect(best).toBe(6200);
+    });
   });
 
   describe('3. Streak Tracking', () => {
@@ -158,6 +165,38 @@ describe('Daily Challenge & Event System', () => {
       );
 
       expect(res3.streakInfo.currentStreak).toBe(1); // Reset to 1
+    });
+  });
+
+  describe('4. Daily Challenge Gameplay Loop', () => {
+    it('initializes AdventureEngine with daily challenge parameters and places pieces', () => {
+      const challenge = DailyChallengeGenerator.generateForDate('2026-09-05');
+      const adventureEngine = new AdventureEngine();
+
+      adventureEngine.startLevel({
+        id: challenge.id,
+        worldId: 'daily',
+        levelNumber: 1,
+        name: challenge.title,
+        description: challenge.description,
+        difficulty: challenge.difficulty,
+        objective: challenge.objective,
+        moveLimit: challenge.moveLimit,
+        starRequirements: { twoStarScore: 1000, threeStarScore: 2000 },
+        rewards: challenge.rewards,
+        seed: challenge.seed,
+        initialBoard: challenge.initialBoard,
+      });
+
+      expect(adventureEngine.getStatus()).toBe('PLAYING');
+      expect(adventureEngine.getCurrentLevel()?.id).toBe(challenge.id);
+      expect(adventureEngine.getTray().some(p => p !== null)).toBe(true);
+
+      // Perform a piece placement
+      const result = adventureEngine.placeAdventurePiece(0, 0, 0);
+      expect(result.success).toBe(true);
+      expect(adventureEngine.getScore()).toBeGreaterThan(0);
+      expect(adventureEngine.getGameplayStats().movesUsed).toBe(1);
     });
   });
 });

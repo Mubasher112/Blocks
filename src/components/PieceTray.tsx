@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, GestureResponderEvent } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Piece as PieceModel } from '../game/Piece';
 import { PieceComponent } from './Piece';
 
@@ -20,9 +20,32 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
         <View
           key={index}
           style={styles.traySlot}
-          onTouchStart={(e: GestureResponderEvent) => {
+          onTouchStart={(e: any) => {
             if (piece && activeDragIndex === null) {
-              const { pageX, pageY } = e.nativeEvent;
+              const nativeEvt = e.nativeEvent || e;
+              const touch = nativeEvt.touches?.[0] || nativeEvt.changedTouches?.[0] || nativeEvt;
+              let pageX = touch?.pageX;
+              let pageY = touch?.pageY;
+
+              // Fallback to slot center if touch page coordinates are missing
+              if (typeof pageX !== 'number' || isNaN(pageX) || typeof pageY !== 'number' || isNaN(pageY)) {
+                if (e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function') {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  pageX = rect.left + rect.width / 2;
+                  pageY = rect.top + rect.height / 2;
+                } else {
+                  pageX = 0;
+                  pageY = 0;
+                }
+              }
+
+              onGrantTouch(index, pageX, pageY);
+            }
+          }}
+          onMouseDown={(e: any) => {
+            if (piece && activeDragIndex === null) {
+              const pageX = e.pageX ?? e.clientX ?? 0;
+              const pageY = e.pageY ?? e.clientY ?? 0;
               onGrantTouch(index, pageX, pageY);
             }
           }}

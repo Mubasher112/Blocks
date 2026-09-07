@@ -29,6 +29,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const measureBoard = () => {
     if (boardGridRef.current) {
+      if (typeof boardGridRef.current.getBoundingClientRect === 'function') {
+        const rect = boardGridRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          onLayoutBoard(rect.left, rect.top, rect.width, rect.height);
+          return;
+        }
+      }
       if (boardGridRef.current.measureInWindow) {
         boardGridRef.current.measureInWindow(
           (x: number, y: number, width: number, height: number) => {
@@ -48,6 +55,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       }
     }
   };
+
+  React.useEffect(() => {
+    measureBoard();
+    const timer = setTimeout(measureBoard, 60);
+    return () => clearTimeout(timer);
+  }, []);
 
   const isCellInPreview = (r: number, c: number): boolean => {
     if (!draggedPiece || !previewPos) return false;

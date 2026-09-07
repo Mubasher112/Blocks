@@ -219,6 +219,21 @@ export class DailyChallengeService {
   }
 
   /**
+   * Retrieves player's best recorded score for a specific challenge
+   */
+  public static async getPlayerDailyBest(challengeId: string): Promise<number> {
+    try {
+      const localResultsStr = await AsyncStorage.getItem(STORAGE_KEYS.DAILY_RESULTS_LOCAL);
+      if (!localResultsStr) return 0;
+      const localResults: Record<string, DailyChallengeResult> = JSON.parse(localResultsStr);
+      return localResults[challengeId]?.bestScore || 0;
+    } catch (e) {
+      console.warn('Error reading local daily best score:', e);
+      return 0;
+    }
+  }
+
+  /**
    * Helper to calculate local streak logic
    */
   private static updateLocalStreak(currentStreak: StreakInfo, challengeDate: string): StreakInfo {
