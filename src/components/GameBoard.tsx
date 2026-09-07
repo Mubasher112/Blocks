@@ -29,13 +29,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const measureBoard = () => {
     if (boardGridRef.current) {
-      if (typeof boardGridRef.current.getBoundingClientRect === 'function') {
-        const rect = boardGridRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          onLayoutBoard(rect.left, rect.top, rect.width, rect.height);
-          return;
-        }
-      }
       if (boardGridRef.current.measureInWindow) {
         boardGridRef.current.measureInWindow(
           (x: number, y: number, width: number, height: number) => {
@@ -55,12 +48,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       }
     }
   };
-
-  React.useEffect(() => {
-    measureBoard();
-    const timer = setTimeout(measureBoard, 60);
-    return () => clearTimeout(timer);
-  }, []);
 
   const isCellInPreview = (r: number, c: number): boolean => {
     if (!draggedPiece || !previewPos) return false;
@@ -90,17 +77,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               let cellBg = '#131726';
               let borderColor = 'rgba(255, 255, 255, 0.05)';
 
-              const showPreview = inPreview && isValidPreview;
-
               if (isClearing) {
                 cellBg = '#ffffff';
                 borderColor = '#ffffff';
               } else if (isOccupied) {
                 cellBg = cell.color || '#00F0FF';
                 borderColor = 'rgba(255, 255, 255, 0.3)';
-              } else if (showPreview) {
-                cellBg = draggedPiece?.color || '#00F0FF';
-                borderColor = 'rgba(255, 255, 255, 0.7)';
+              } else if (inPreview) {
+                if (isValidPreview) {
+                  cellBg = draggedPiece?.color || '#00F0FF';
+                  borderColor = '#FFFFFF';
+                } else {
+                  cellBg = 'rgba(255, 0, 85, 0.35)';
+                  borderColor = '#FF0055';
+                }
               }
 
               return (
@@ -111,8 +101,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     {
                       backgroundColor: cellBg,
                       borderColor: borderColor,
-                      borderWidth: showPreview ? 2 : 1,
-                      opacity: showPreview ? 0.6 : 1,
+                      borderWidth: inPreview ? 2 : 1,
+                      opacity: inPreview && isValidPreview ? 0.65 : 1,
                     },
                   ]}
                 />
@@ -156,10 +146,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     width: '100%',
-    marginVertical: 10,
-    touchAction: 'none',
-    userSelect: 'none',
-  } as any,
+  },
   boardGrid: {
     width: '100%',
     aspectRatio: 1,
@@ -171,9 +158,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
     gap: 4,
-    touchAction: 'none',
-    userSelect: 'none',
-  } as any,
+  },
   boardRow: {
     flex: 1,
     flexDirection: 'row',

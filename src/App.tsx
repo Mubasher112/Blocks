@@ -3,6 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
+  PanResponder,
+  PanResponderInstance,
+  GestureResponderEvent,
   BackHandler,
   AppState,
   AppStateStatus,
@@ -25,7 +28,15 @@ import { PieceComponent } from './components/Piece';
 import { MainMenu } from './components/MainMenu';
 import { GameOverModal } from './components/GameOverModal';
 import { SplashScreen } from './components/SplashScreen';
-import { PauseModal } from './components/PauseModal';
+
+import { DailyRewardModal } from './components/economy/DailyRewardModal';
+import { AchievementsScreen } from './components/economy/AchievementsScreen';
+import { RewardToast, RewardToastData } from './components/economy/RewardToast';
+import { EconomyService } from './services/backend/EconomyService';
+import { AchievementService } from './services/backend/AchievementService';
+import { DailyRewardService } from './services/backend/DailyRewardService';
+import { RewardService } from './services/backend/RewardService';
+import { PlayerEconomy, AchievementConfig, PlayerAchievementState } from './game/economy/EconomyTypes';
 
 import { AdventureMap } from './components/adventure/AdventureMap';
 import { LevelStartModal } from './components/adventure/LevelStartModal';
@@ -65,7 +76,8 @@ type ScreenState =
   | 'DAILY_SCREEN'
   | 'DAILY_GAME'
   | 'LEADERBOARDS'
-  | 'SOCIAL';
+  | 'SOCIAL'
+  | 'ACHIEVEMENTS';
 
 export const App: React.FC = () => {
   // Engine Instances
@@ -91,9 +103,19 @@ export const App: React.FC = () => {
     highScore: 0,
     longestCombo: 0,
   });
+  const [economy, setEconomy] = useState<PlayerEconomy>({
+    coins: 0,
+    level: 1,
+    currentXP: 0,
+    totalXP: 0,
+  });
+  const [canClaimDailyReward, setCanClaimDailyReward] = useState<boolean>(false);
+  const [dailyRewardDay, setDailyRewardDay] = useState<number>(1);
+  const [showDailyRewardModal, setShowDailyRewardModal] = useState<boolean>(false);
+  const [achievementsList, setAchievementsList] = useState<{ config: AchievementConfig; state: PlayerAchievementState }[]>([]);
+  const [activeToast, setActiveToast] = useState<RewardToastData | null>(null);
   const [adventureProgress, setAdventureProgress] = useState<AdventureProgress>(DEFAULT_ADVENTURE_PROGRESS);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(true);
 
   // Daily Challenge States
   const [dailyChallenge, setDailyChallenge] = useState<DailyChallenge | null>(null);
@@ -103,7 +125,6 @@ export const App: React.FC = () => {
   const [dailyCompleted, setDailyCompleted] = useState<boolean>(false);
 
   // Modal States
-  const [showPauseModal, setShowPauseModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showLevelStartModal, setShowLevelStartModal] = useState<boolean>(false);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
@@ -146,29 +167,13 @@ export const App: React.FC = () => {
   const draggedPieceRef = useRef<Piece | null>(null);
   const previewPosRef = useRef<{ r: number; c: number } | null>(null);
   const isValidPreviewRef = useRef<boolean>(false);
-  const dragOverlayRef = useRef<any>(null);
-  const lastPreviewRef = useRef<{ r: number; c: number; valid: boolean } | null>(null);
 
-  // Dynamic state refs to prevent stale closures in PanResponder
-  const screenRef = useRef<ScreenState>(screen);
-  const activeLevelRef = useRef<AdventureLevel | null>(activeLevel);
-  const dailyChallengeRef = useRef<DailyChallenge | null>(dailyChallenge);
-  const playerRef = useRef<PlayerProfile | null>(player);
-  const adventureProgressRef = useRef<AdventureProgress>(adventureProgress);
-
-  // Synchronize state to refs on each render
-  screenRef.current = screen;
-  activeLevelRef.current = activeLevel;
-  dailyChallengeRef.current = dailyChallenge;
-  playerRef.current = player;
-  adventureProgressRef.current = adventureProgress;
-
-  // Helper to get currently active engine dynamically
+  // Helper to get currently active engine based on screen
   const getActiveEngine = useCallback(() => {
-    return screenRef.current === 'ADVENTURE_GAME' || screenRef.current === 'DAILY_GAME'
+    return screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME'
       ? adventureEngineRef.current
       : classicEngineRef.current;
-  }, []);
+  }, [screen]);
 
   // Sync state from engine to React components and trigger Cloud Sync & Leaderboard score submission
   const syncEngineState = useCallback(async () => {
@@ -182,11 +187,8 @@ export const App: React.FC = () => {
     setStats(currentStats);
     await StorageService.saveStats(currentStats);
 
-    const currentPlayer = playerRef.current;
-    const currentScreen = screenRef.current;
-
-    if (currentPlayer) {
-      const syncRes = await CloudSyncService.sync(currentPlayer.id);
+    if (player) {
+      const syncRes = await CloudSyncService.sync(player.id);
       if (syncRes.conflictResolved) {
         setStats(syncRes.mergedStats);
         setHighScore(syncRes.mergedStats.highScore);
@@ -194,10 +196,10 @@ export const App: React.FC = () => {
       }
 
       // Submit Classic scores to All-Time and Weekly Leaderboards
-      if (currentScreen === 'CLASSIC' && engine.getScore() > 0) {
-        await ScoreService.submitScore(currentPlayer, 'CLASSIC_ALL_TIME', 'ALL_TIME', engine.getScore());
+      if (screen === 'CLASSIC' && engine.getScore() > 0) {
+        await ScoreService.submitScore(player, 'CLASSIC_ALL_TIME', 'ALL_TIME', engine.getScore());
         await ScoreService.submitScore(
-          currentPlayer,
+          player,
           'CLASSIC_WEEKLY',
           ScoreService.getWeeklyPeriodKey(),
           engine.getScore()
@@ -205,16 +207,16 @@ export const App: React.FC = () => {
       }
 
       // Submit Adventure Total Stars to Adventure Leaderboard
-      if (currentScreen === 'ADVENTURE_GAME') {
+      if (screen === 'ADVENTURE_GAME') {
         await ScoreService.submitScore(
-          currentPlayer,
+          player,
           'ADVENTURE_GLOBAL',
           'ALL_TIME',
-          adventureProgressRef.current.totalStars
+          adventureProgress.totalStars
         );
       }
     }
-  }, [getActiveEngine]);
+  }, [getActiveEngine, player, screen, adventureProgress.totalStars]);
 
   // Load persistent stats, settings, player profile, and adventure progress on mount
   useEffect(() => {
@@ -226,7 +228,6 @@ export const App: React.FC = () => {
       setStats(loadedStats);
       setHighScore(loadedStats.highScore);
       setSoundEnabled(loadedSettings.soundEnabled);
-      setHapticsEnabled(loadedSettings.hapticsEnabled);
       setAdventureProgress(loadedProgress);
 
       audio.setEnabled(loadedSettings.soundEnabled);
@@ -234,23 +235,23 @@ export const App: React.FC = () => {
 
       classicEngineRef.current = new GameEngine(undefined, loadedStats);
 
-      // Restore active game if exists
-      const savedActiveGame = await StorageService.loadActiveGame();
-      if (savedActiveGame) {
-        classicEngineRef.current.restoreActiveGame(savedActiveGame);
-      }
-
       // Login/Restore Guest Player
       const guestPlayer = await AuthService.loginAsGuest();
       setPlayer(guestPlayer);
 
-      // Fetch Today's Daily Challenge, Streak & Best Score
+      // Fetch Today's Daily Challenge & Streak & Economy
       const challenge = await DailyChallengeService.getTodayChallenge();
       const streak = await DailyChallengeService.getStreak(guestPlayer.id);
-      const bestDaily = await DailyChallengeService.getPlayerDailyBest(challenge.id);
+      const econ = await EconomyService.getEconomy(guestPlayer.id);
+      const dailyRewardClaim = await DailyRewardService.canClaim(guestPlayer.id);
+      const achievements = await AchievementService.getAchievements(guestPlayer.id);
+
       setDailyChallenge(challenge);
       setDailyStreak(streak);
-      setDailyBestScore(bestDaily);
+      setEconomy(econ);
+      setCanClaimDailyReward(dailyRewardClaim.canClaim);
+      setDailyRewardDay(dailyRewardClaim.todayDay);
+      setAchievementsList(achievements);
 
       // Perform initial cloud sync & pending offline submissions sync
       const syncRes = await CloudSyncService.sync(guestPlayer.id);
@@ -267,10 +268,6 @@ export const App: React.FC = () => {
   // Handle Android Back Button to navigate screens
   useEffect(() => {
     const backAction = () => {
-      if (showPauseModal) {
-        setShowPauseModal(false);
-        return true;
-      }
       if (selectedPublicPlayer) {
         setSelectedPublicPlayer(null);
         return true;
@@ -280,7 +277,7 @@ export const App: React.FC = () => {
         return true;
       }
       if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') {
-        setShowPauseModal(true);
+        setScreen(screen === 'ADVENTURE_GAME' ? 'ADVENTURE_MAP' : screen === 'DAILY_GAME' ? 'DAILY_SCREEN' : 'MENU');
         return true;
       }
       if (screen === 'ADVENTURE_MAP' || screen === 'DAILY_SCREEN' || screen === 'LEADERBOARDS' || screen === 'SOCIAL') {
@@ -292,7 +289,7 @@ export const App: React.FC = () => {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [screen, showPauseModal, showProfileModal, selectedPublicPlayer]);
+  }, [screen, showProfileModal, selectedPublicPlayer]);
 
   // App Lifecycle Handling
   useEffect(() => {
@@ -321,13 +318,11 @@ export const App: React.FC = () => {
     return () => subscription.remove();
   }, [screen, status]);
 
-  // Start or Resume Classic Game
+  // Start Classic Game
   const handleStartClassic = async () => {
     audio.playButtonClick();
-    if (classicEngineRef.current.getStatus() !== 'PLAYING') {
-      await StorageService.clearActiveGame();
-      classicEngineRef.current.startNewGame();
-    }
+    await StorageService.clearActiveGame();
+    classicEngineRef.current.startNewGame();
     setScreen('CLASSIC');
     await syncEngineState();
   };
@@ -353,79 +348,15 @@ export const App: React.FC = () => {
     const nextState = !soundEnabled;
     setSoundEnabled(nextState);
     audio.setEnabled(nextState);
-    await StorageService.saveSettings({ soundEnabled: nextState, hapticsEnabled });
-  };
-
-  // Toggle Haptics Settings
-  const handleToggleHaptics = async () => {
-    const nextState = !hapticsEnabled;
-    setHapticsEnabled(nextState);
-    haptics.setEnabled(nextState);
-    await StorageService.saveSettings({ soundEnabled, hapticsEnabled: nextState });
-  };
-
-  // Restart current game mode
-  const handleRestartGame = async () => {
-    audio.playButtonClick();
-    setShowPauseModal(false);
-    if (screen === 'ADVENTURE_GAME' && activeLevel) {
-      adventureEngineRef.current.startLevel(activeLevel);
-    } else if (screen === 'DAILY_GAME' && dailyChallenge) {
-      adventureEngineRef.current.startLevel({
-        id: dailyChallenge.id,
-        worldId: 'daily',
-        levelNumber: 1,
-        name: dailyChallenge.title,
-        description: dailyChallenge.description,
-        difficulty: dailyChallenge.difficulty,
-        objective: dailyChallenge.objective,
-        moveLimit: dailyChallenge.moveLimit,
-        starRequirements: { twoStarScore: 1000, threeStarScore: 2000 },
-        rewards: dailyChallenge.rewards,
-        seed: dailyChallenge.seed,
-        initialBoard: dailyChallenge.initialBoard,
-      });
-    } else {
-      await StorageService.clearActiveGame();
-      classicEngineRef.current.startNewGame();
-    }
-    await syncEngineState();
-  };
-
-  // Quit to Menu or Map from Pause Modal
-  const handleQuitGame = async () => {
-    setShowPauseModal(false);
-    if (screen === 'CLASSIC') {
-      const engine = classicEngineRef.current;
-      if (engine.getStatus() === 'PLAYING') {
-        const grid = engine.getBoard().getGrid();
-        const trayShapes = engine.getTray().map(p => (p ? p.shapeId : null));
-        await StorageService.saveActiveGame({
-          score: engine.getScore(),
-          highScore: engine.getHighScore(),
-          comboCount: engine.getComboCount(),
-          grid: grid.map(row => row.map(cell => ({ state: cell.state, color: cell.color }))),
-          trayShapes,
-          stats: engine.getStats(),
-          novaState: engine.getNovaEngine().getState(),
-          saveVersion: 1,
-        });
-      }
-      setScreen('MENU');
-    } else if (screen === 'ADVENTURE_GAME') {
-      setScreen('ADVENTURE_MAP');
-    } else if (screen === 'DAILY_GAME') {
-      setScreen('DAILY_SCREEN');
-    }
+    await StorageService.saveSettings({ soundEnabled: nextState, hapticsEnabled: true });
   };
 
   // Handle Level Win/Progress Update
-  const handleLevelCompleted = useCallback(async (level: AdventureLevel, finalScore: number, stars: number) => {
+  const handleLevelCompleted = async (level: AdventureLevel, finalScore: number, stars: number) => {
     setCompletedStars(stars);
     setShowSuccessModal(true);
 
-    const currentProgress = adventureProgressRef.current;
-    const updatedCompleted = { ...currentProgress.completedLevels };
+    const updatedCompleted = { ...adventureProgress.completedLevels };
     const prevEntry = updatedCompleted[level.id];
     const newBestScore = prevEntry ? Math.max(prevEntry.bestScore, finalScore) : finalScore;
     const newStars = prevEntry ? Math.max(prevEntry.stars, stars) : stars;
@@ -434,62 +365,317 @@ export const App: React.FC = () => {
 
     const totalStars = Object.values(updatedCompleted).reduce((sum, item) => sum + item.stars, 0);
 
-    const nextLevelNum = Math.max(currentProgress.unlockedLevelNumber, level.levelNumber + 1);
+    const nextLevelNum = Math.max(adventureProgress.unlockedLevelNumber, level.levelNumber + 1);
 
     const newProgress: AdventureProgress = {
-      ...currentProgress,
+      ...adventureProgress,
       unlockedLevelNumber: nextLevelNum,
       completedLevels: updatedCompleted,
       totalStars,
-      coins: currentProgress.coins + level.rewards.coins,
-      xp: currentProgress.xp + level.rewards.xp,
+      coins: adventureProgress.coins + level.rewards.coins,
+      xp: adventureProgress.xp + level.rewards.xp,
     };
 
     setAdventureProgress(newProgress);
     await StorageService.saveAdventureProgress(newProgress);
 
-    const currentPlayer = playerRef.current;
-    if (currentPlayer) {
-      await CloudSyncService.sync(currentPlayer.id);
-      await ScoreService.submitScore(currentPlayer, 'ADVENTURE_GLOBAL', 'ALL_TIME', totalStars);
+    if (player) {
+      await CloudSyncService.sync(player.id);
+      await ScoreService.submitScore(player, 'ADVENTURE_GLOBAL', 'ALL_TIME', totalStars);
     }
-  }, []);
+  };
 
-  // Synchronous and fallback measurement of container layout offset
-  const getContainerOffset = useCallback((): { x: number; y: number } => {
-    if (gameContainerRef.current) {
-      if (typeof gameContainerRef.current.getBoundingClientRect === 'function') {
-        const rect = gameContainerRef.current.getBoundingClientRect();
-        containerLayoutRef.current = { x: rect.left, y: rect.top };
-        return { x: rect.left, y: rect.top };
-      }
-    }
-    return containerLayoutRef.current;
-  }, []);
+  // Touch Drag-and-Drop PanResponder Implementation
+  const panResponder = useRef<PanResponderInstance>(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => activeDragIndexRef.current !== null,
+      onMoveShouldSetPanResponder: () => activeDragIndexRef.current !== null,
+      onPanResponderMove: (evt: GestureResponderEvent) => {
+        const index = activeDragIndexRef.current;
+        const piece = draggedPieceRef.current;
+        const layout = boardLayoutRef.current;
 
-  const updateContainerMeasurement = useCallback(() => {
-    if (gameContainerRef.current) {
-      if (typeof gameContainerRef.current.getBoundingClientRect === 'function') {
-        const rect = gameContainerRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          containerLayoutRef.current = { x: rect.left, y: rect.top };
-          return;
+        if (index === null || !piece || !layout) return;
+
+        const touchX = evt.nativeEvent.pageX;
+        const touchY = evt.nativeEvent.pageY;
+
+        // Board padding (10px) and cell gap (4px) inside GameBoard.tsx
+        const INNER_PADDING = 10;
+        const GAP = 4;
+
+        const usableWidth = layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP;
+        const cellSize = usableWidth / Board.SIZE;
+        const stride = cellSize + GAP;
+
+        // Vertical lift offset (60px) so player's thumb does not obscure target board cells
+        const FINGER_OFFSET_Y = 60;
+        const targetX = touchX;
+        const targetY = touchY - FINGER_OFFSET_Y;
+
+        const pieceWidthPx = piece.width * stride - GAP;
+        const pieceHeightPx = piece.height * stride - GAP;
+
+        // Continuous top-left coordinate of floating piece in container space
+        const pieceLeftX = (targetX - containerLayoutRef.current.x) - pieceWidthPx / 2;
+        const pieceTopY = (targetY - containerLayoutRef.current.y) - pieceHeightPx / 2;
+
+        setDragLocation({ x: pieceLeftX, y: pieceTopY });
+
+        // Calculate target board cell directly under the piece's center target point
+        const fingerX = targetX - (layout.x + INNER_PADDING);
+        const fingerY = targetY - (layout.y + INNER_PADDING);
+
+        const fingerC = Math.floor(fingerX / stride);
+        const fingerR = Math.floor(fingerY / stride);
+
+        // Center piece occupied cells over target cell
+        const centerOffsetC = Math.floor((piece.width - 1) / 2);
+        const centerOffsetR = Math.floor((piece.height - 1) / 2);
+
+        const c = fingerC - centerOffsetC;
+        const r = fingerR - centerOffsetR;
+
+        const engine = getActiveEngine();
+
+        if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
+          const valid = engine.getBoard().canPlacePiece(piece, r, c);
+          previewPosRef.current = { r, c };
+          isValidPreviewRef.current = valid;
+          setPreviewPos({ r, c });
+          setIsValidPreview(valid);
+        } else {
+          previewPosRef.current = null;
+          isValidPreviewRef.current = false;
+          setPreviewPos(null);
+          setIsValidPreview(false);
         }
-      }
-      if (gameContainerRef.current.measureInWindow) {
-        gameContainerRef.current.measureInWindow((x: number, y: number) => {
-          if (x >= 0 && y >= 0) {
-            containerLayoutRef.current = { x, y };
+      },
+      onPanResponderRelease: async () => {
+        const index = activeDragIndexRef.current;
+        const piece = draggedPieceRef.current;
+        const pos = previewPosRef.current;
+        const isValid = isValidPreviewRef.current;
+
+        if (index !== null && piece && pos && isValid) {
+          if (screen === 'DAILY_GAME' && dailyChallenge) {
+            // Daily Challenge Gameplay Loop
+            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+              }
+
+              if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
+                const finalScore = adventureEngineRef.current.getScore();
+                setDailyCompleted(moveResult.isObjectiveComplete);
+
+                if (player) {
+                  const res = await DailyChallengeService.submitResult(
+                    player,
+                    dailyChallenge.id,
+                    finalScore,
+                    adventureEngineRef.current.getGameplayStats().linesCleared,
+                    adventureEngineRef.current.getGameplayStats().movesUsed,
+                    moveResult.isObjectiveComplete
+                  );
+                  setDailyBestScore(res.bestScore);
+                  setDailyStreak(res.streakInfo);
+                }
+
+                setShowDailyResultModal(true);
+              }
+
+              await syncEngineState();
+            }
+          } else if (screen === 'ADVENTURE_GAME' && activeLevel) {
+            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+
+                const clearSet = new Set<string>();
+                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+                setClearingCells(clearSet);
+
+                setTimeout(() => setClearingCells(new Set()), 300);
+
+                const scoreId = Date.now();
+                setFloatingScores(prev => [
+                  ...prev,
+                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
+                ]);
+
+                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+
+                // Splash text overlay feedback
+                let splashTitle = '';
+                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
+                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+
+                if (splashTitle && splashType) {
+                  const splashId = Date.now();
+                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                  audio.playSplashAudio(splashType);
+                  setTimeout(() => setSplashOverlay(null), 1000);
+                }
+
+                // Grant XP & Coins for Line Clears
+                if (player) {
+                  const xpEarned = moveResult.linesCleared * 20;
+                  const rewardRes = await RewardService.grantRewardBundle(player.id, {
+                    source: `Classic Clear ${moveResult.linesCleared} Lines`,
+                    referenceId: `classic_clear_${Date.now()}`,
+                    rewards: [{ type: 'XP', amount: xpEarned }],
+                  });
+
+                  setEconomy({
+                    coins: rewardRes.newBalance,
+                    level: rewardRes.level,
+                    currentXP: rewardRes.totalXP,
+                    totalXP: rewardRes.totalXP,
+                  });
+
+                  if (rewardRes.levelUpEvents.length > 0) {
+                    const lvlEvt = rewardRes.levelUpEvents[rewardRes.levelUpEvents.length - 1];
+                    setActiveToast({
+                      id: Date.now(),
+                      title: `LEVEL UP! REACHED LEVEL ${lvlEvt.newLevel}`,
+                      coins: lvlEvt.coinRewardsGranted,
+                    });
+                  }
+                }
+              }
+
+              if (moveResult.comboCount > 1) {
+                audio.playCombo(moveResult.comboCount);
+                haptics.combo();
+              }
+
+              // Check level success or failure
+              if (moveResult.isObjectiveComplete) {
+                audio.playClear(3);
+                haptics.clear();
+                await handleLevelCompleted(activeLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
+              } else if (moveResult.isGameOver) {
+                audio.playGameOver();
+                haptics.gameOver();
+                setShowFailedModal(true);
+              }
+
+              await syncEngineState();
+            }
+          } else {
+            // Classic Game Placement
+            const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
+
+            if (moveResult.success) {
+              audio.playPlace();
+              haptics.place();
+
+              if (moveResult.linesCleared > 0) {
+                audio.playClear(moveResult.linesCleared);
+                haptics.clear();
+
+                const clearSet = new Set<string>();
+                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+                setClearingCells(clearSet);
+
+                setTimeout(() => setClearingCells(new Set()), 300);
+
+                const scoreId = Date.now();
+                setFloatingScores(prev => [
+                  ...prev,
+                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
+                ]);
+
+                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+
+                // Splash text overlay feedback
+                let splashTitle = '';
+                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
+                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+
+                if (splashTitle && splashType) {
+                  const splashId = Date.now();
+                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+                  audio.playSplashAudio(splashType);
+                  setTimeout(() => setSplashOverlay(null), 1000);
+                }
+              }
+
+              if (moveResult.comboCount > 1) {
+                audio.playCombo(moveResult.comboCount);
+                haptics.combo();
+              }
+
+              if (moveResult.isGameOver) {
+                audio.playGameOver();
+                haptics.gameOver();
+              }
+
+              await syncEngineState();
+            }
           }
-        });
-      }
+        }
+
+        activeDragIndexRef.current = null;
+        draggedPieceRef.current = null;
+        previewPosRef.current = null;
+        isValidPreviewRef.current = false;
+
+        setActiveDragIndex(null);
+        setDragLocation(null);
+        setPreviewPos(null);
+        setIsValidPreview(false);
+      },
+      onPanResponderTerminate: () => {
+        activeDragIndexRef.current = null;
+        draggedPieceRef.current = null;
+        previewPosRef.current = null;
+        isValidPreviewRef.current = false;
+
+        setActiveDragIndex(null);
+        setDragLocation(null);
+        setPreviewPos(null);
+        setIsValidPreview(false);
+      },
+    })
+  ).current;
+
+  // Measure container offset whenever active screen changes or on drag start
+  const updateContainerMeasurement = useCallback(() => {
+    if (gameContainerRef.current && gameContainerRef.current.measureInWindow) {
+      gameContainerRef.current.measureInWindow((x: number, y: number) => {
+        if (x >= 0 && y >= 0) {
+          containerLayoutRef.current = { x, y };
+        }
+      });
     }
   }, []);
 
   useEffect(() => {
     if (screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') {
-      updateContainerMeasurement();
-      const timer = setTimeout(updateContainerMeasurement, 100);
+      const timer = setTimeout(updateContainerMeasurement, 150);
       return () => {
         clearTimeout(timer);
       };
@@ -497,312 +683,9 @@ export const App: React.FC = () => {
     return undefined;
   }, [screen, updateContainerMeasurement]);
 
-  // Ref to hold window listener unbind callback
-  const dragCleanupRef = useRef<(() => void) | null>(null);
-
-  // Synchronous update of dragged piece floating coordinates and board preview
-  const updateDragPosition = useCallback((touchX: number, touchY: number) => {
-    const index = activeDragIndexRef.current;
-    const piece = draggedPieceRef.current;
-    const layout = boardLayoutRef.current;
-
-    if (index === null || !piece) return;
-
-    const INNER_PADDING = 10;
-    const GAP = 4;
-
-    const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
-    const cellSize = usableWidth / Board.SIZE;
-    const stride = cellSize + GAP;
-
-    // Ergonomic vertical lift (70px) so piece floats cleanly above thumb
-    const FINGER_OFFSET_Y = 70;
-    const targetX = touchX;
-    const targetY = touchY - FINGER_OFFSET_Y;
-
-    const pieceWidthPx = piece.width * stride - GAP;
-    const pieceHeightPx = piece.height * stride - GAP;
-
-    const containerOffset = getContainerOffset();
-    const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
-    const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
-
-    // Direct GPU transform on overlay DOM node - 120 FPS, zero React re-render lag
-    if (dragOverlayRef.current) {
-      if (dragOverlayRef.current.style) {
-        dragOverlayRef.current.style.transform = `translate3d(${pieceLeftX}px, ${pieceTopY}px, 0)`;
-      } else if (typeof dragOverlayRef.current.setNativeProps === 'function') {
-        dragOverlayRef.current.setNativeProps({
-          style: {
-            transform: [{ translateX: pieceLeftX }, { translateY: pieceTopY }],
-          },
-        });
-      }
-    }
-
-    if (!layout) return;
-
-    // Exact geometric alignment with board grid cells
-    const gridOriginX = layout.x + INNER_PADDING;
-    const gridOriginY = layout.y + INNER_PADDING;
-
-    const screenPieceLeftX = targetX - pieceWidthPx / 2;
-    const screenPieceTopY = targetY - pieceHeightPx / 2;
-
-    const relX = screenPieceLeftX - gridOriginX;
-    const relY = screenPieceTopY - gridOriginY;
-
-    const c = Math.round(relX / stride);
-    const r = Math.round(relY / stride);
-
-    const engine = getActiveEngine();
-    const canPlace = r >= 0 && c >= 0 && engine.getBoard().canPlacePiece(piece, r, c);
-    const targetR = canPlace ? r : -1;
-    const targetC = canPlace ? c : -1;
-
-    const last = lastPreviewRef.current;
-    if (!last || last.r !== targetR || last.c !== targetC || last.valid !== canPlace) {
-      lastPreviewRef.current = { r: targetR, c: targetC, valid: canPlace };
-      if (canPlace) {
-        previewPosRef.current = { r, c };
-        isValidPreviewRef.current = true;
-        setPreviewPos({ r, c });
-        setIsValidPreview(true);
-      } else {
-        previewPosRef.current = null;
-        isValidPreviewRef.current = false;
-        setPreviewPos(null);
-        setIsValidPreview(false);
-      }
-    }
-  }, [getActiveEngine, getContainerOffset]);
-
-  // Handle piece drop / release
-  const handleReleaseDrag = useCallback(async () => {
-    // Clear global listener references
-    if (dragCleanupRef.current) {
-      dragCleanupRef.current();
-      dragCleanupRef.current = null;
-    }
-
-    const index = activeDragIndexRef.current;
-    const piece = draggedPieceRef.current;
-    const pos = previewPosRef.current;
-    const isValid = isValidPreviewRef.current;
-    const currentScreen = screenRef.current;
-    const currentPlayer = playerRef.current;
-
-    // Reset drag state immediately so the floating piece disappears and the slot un-hides instantly
-    activeDragIndexRef.current = null;
-    draggedPieceRef.current = null;
-    previewPosRef.current = null;
-    isValidPreviewRef.current = false;
-    lastPreviewRef.current = null;
-
-    setActiveDragIndex(null);
-    setDragLocation(null);
-    setPreviewPos(null);
-    setIsValidPreview(false);
-
-    try {
-      if (index !== null && piece && pos && isValid) {
-        if (currentScreen === 'DAILY_GAME' && dailyChallengeRef.current) {
-          const currentChallenge = dailyChallengeRef.current;
-          const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-          if (moveResult.success) {
-            audio.playPlace();
-            haptics.place();
-
-            if (moveResult.linesCleared > 0) {
-              audio.playClear(moveResult.linesCleared);
-              haptics.clear();
-
-              const clearSet = new Set<string>();
-              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-              setClearingCells(clearSet);
-              setTimeout(() => setClearingCells(new Set()), 300);
-
-              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-              const scoreId = Date.now();
-              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-              let splashTitle: string | undefined;
-              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-              if (splashTitle && splashType) {
-                const splashId = Date.now();
-                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                audio.playSplashAudio(splashType);
-                setTimeout(() => setSplashOverlay(null), 1000);
-              }
-            }
-
-            if (moveResult.comboCount > 1) {
-              audio.playCombo(moveResult.comboCount);
-              haptics.combo();
-            }
-
-            if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
-              const finalScore = adventureEngineRef.current.getScore();
-              setDailyCompleted(moveResult.isObjectiveComplete);
-
-              if (currentPlayer) {
-                const res = await DailyChallengeService.submitResult(
-                  currentPlayer,
-                  currentChallenge.id,
-                  finalScore,
-                  adventureEngineRef.current.getGameplayStats().linesCleared,
-                  adventureEngineRef.current.getGameplayStats().movesUsed,
-                  moveResult.isObjectiveComplete
-                );
-                setDailyBestScore(res.bestScore);
-                setDailyStreak(res.streakInfo);
-              }
-
-              setShowDailyResultModal(true);
-            }
-
-            await syncEngineState();
-          }
-        } else if (currentScreen === 'ADVENTURE_GAME' && activeLevelRef.current) {
-          const currentLevel = activeLevelRef.current;
-          const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-
-          if (moveResult.success) {
-            audio.playPlace();
-            haptics.place();
-
-            if (moveResult.linesCleared > 0) {
-              audio.playClear(moveResult.linesCleared);
-              haptics.clear();
-
-              const clearSet = new Set<string>();
-              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-              setClearingCells(clearSet);
-              setTimeout(() => setClearingCells(new Set()), 300);
-
-              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-              const scoreId = Date.now();
-              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-              let splashTitle: string | undefined;
-              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-              if (splashTitle && splashType) {
-                const splashId = Date.now();
-                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                audio.playSplashAudio(splashType);
-                setTimeout(() => setSplashOverlay(null), 1000);
-              }
-            }
-
-            if (moveResult.comboCount > 1) {
-              audio.playCombo(moveResult.comboCount);
-              haptics.combo();
-            }
-
-            if (moveResult.isObjectiveComplete) {
-              audio.playClear(3);
-              haptics.clear();
-              await handleLevelCompleted(currentLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
-            } else if (moveResult.isGameOver) {
-              audio.playGameOver();
-              haptics.gameOver();
-              setShowFailedModal(true);
-            }
-
-            await syncEngineState();
-          }
-        } else {
-          // Classic Game Placement
-          const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
-
-          if (moveResult.success) {
-            audio.playPlace();
-            haptics.place();
-
-            if (moveResult.linesCleared > 0) {
-              audio.playClear(moveResult.linesCleared);
-              haptics.clear();
-
-              const clearSet = new Set<string>();
-              moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-              setClearingCells(clearSet);
-              setTimeout(() => setClearingCells(new Set()), 300);
-
-              const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
-              const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
-              const scoreId = Date.now();
-              setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
-              setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
-
-              let splashTitle: string | undefined;
-              let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
-              if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-              else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-              else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-              else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-              else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-              let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-              if (splashTitle && splashType) {
-                const splashId = Date.now();
-                setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                audio.playSplashAudio(splashType);
-                setTimeout(() => setSplashOverlay(null), 1000);
-              }
-            }
-
-            if (moveResult.comboCount > 1) {
-              audio.playCombo(moveResult.comboCount);
-              haptics.combo();
-            }
-
-            if (moveResult.isGameOver) {
-              audio.playGameOver();
-              haptics.gameOver();
-            }
-
-            await syncEngineState();
-          }
-        }
-      } else {
-        // Dropped outside board or in between grid and tray (invalid drop)
-        // Clean snap back to tray
-        haptics.snapBack();
-      }
-    } catch (err) {
-      console.warn('Error during piece placement release:', err);
-    }
-  }, [handleLevelCompleted, syncEngineState]);
-
-  // Fast, Block-Blast-style single-touch drag interaction
-  const handleStartDrag = useCallback((index: number, startX: number, startY: number) => {
-    if (typeof startX !== 'number' || isNaN(startX) || typeof startY !== 'number' || isNaN(startY)) {
-      return;
-    }
-
-    // Ignore redundant start calls if drag is already active
-    if (activeDragIndexRef.current !== null) {
-      return;
-    }
-
+  // Handle start touch on piece slot
+  const handleStartDrag = (index: number, startX: number, startY: number) => {
+    updateContainerMeasurement();
     const engine = getActiveEngine();
     const piece = engine.getTray()[index];
     if (!piece) return;
@@ -812,124 +695,24 @@ export const App: React.FC = () => {
 
     activeDragIndexRef.current = index;
     draggedPieceRef.current = piece;
-    lastPreviewRef.current = null;
 
+    const FINGER_OFFSET_Y = 60;
     const INNER_PADDING = 10;
     const GAP = 4;
     const layout = boardLayoutRef.current;
     const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
     const cellSize = usableWidth / Board.SIZE;
     const stride = cellSize + GAP;
-    const FINGER_OFFSET_Y = 70;
-    const targetX = startX;
-    const targetY = startY - FINGER_OFFSET_Y;
+
     const pieceWidthPx = piece.width * stride - GAP;
     const pieceHeightPx = piece.height * stride - GAP;
-    const containerOffset = getContainerOffset();
-    const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
-    const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
+
+    const pieceLeftX = (startX - containerLayoutRef.current.x) - pieceWidthPx / 2;
+    const pieceTopY = (startY - containerLayoutRef.current.y - FINGER_OFFSET_Y) - pieceHeightPx / 2;
 
     setActiveDragIndex(index);
     setDragLocation({ x: pieceLeftX, y: pieceTopY });
-
-    // Initial position calculation right at touch coordinates
-    updateDragPosition(startX, startY);
-
-    if (dragCleanupRef.current) {
-      dragCleanupRef.current();
-      dragCleanupRef.current = null;
-    }
-
-    const onMove = (moveEvt: any) => {
-      if (moveEvt.cancelable) {
-        moveEvt.preventDefault();
-      }
-      let pageX: number | undefined;
-      let pageY: number | undefined;
-
-      if (moveEvt.touches && moveEvt.touches.length > 0) {
-        pageX = moveEvt.touches[0].pageX;
-        pageY = moveEvt.touches[0].pageY;
-      } else if (moveEvt.changedTouches && moveEvt.changedTouches.length > 0) {
-        pageX = moveEvt.changedTouches[0].pageX;
-        pageY = moveEvt.changedTouches[0].pageY;
-      } else if (typeof moveEvt.pageX === 'number') {
-        pageX = moveEvt.pageX;
-        pageY = moveEvt.pageY;
-      } else if (typeof moveEvt.clientX === 'number') {
-        pageX = moveEvt.clientX;
-        pageY = moveEvt.clientY;
-      }
-
-      if (typeof pageX === 'number' && !isNaN(pageX) && typeof pageY === 'number' && !isNaN(pageY)) {
-        updateDragPosition(pageX, pageY);
-      }
-    };
-
-    const onEnd = async (endEvt?: any) => {
-      if (endEvt && endEvt.cancelable) {
-        endEvt.preventDefault();
-      }
-      if (dragCleanupRef.current) {
-        dragCleanupRef.current();
-        dragCleanupRef.current = null;
-      }
-      await handleReleaseDrag();
-    };
-
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove, true);
-      window.removeEventListener('pointerup', onEnd, true);
-      document.removeEventListener('pointermove', onMove, true);
-      document.removeEventListener('pointerup', onEnd, true);
-
-      window.removeEventListener('touchmove', onMove, true);
-      window.removeEventListener('touchend', onEnd, true);
-      window.removeEventListener('touchcancel', onEnd, true);
-      document.removeEventListener('touchmove', onMove, true);
-      document.removeEventListener('touchend', onEnd, true);
-      document.removeEventListener('touchcancel', onEnd, true);
-
-      window.removeEventListener('mousemove', onMove, true);
-      window.removeEventListener('mouseup', onEnd, true);
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mouseup', onEnd, true);
-
-      window.removeEventListener('blur', onEnd);
-      dragCleanupRef.current = null;
-    };
-
-    dragCleanupRef.current = cleanup;
-
-    // Register capture phase listeners on BOTH window and document
-    window.addEventListener('pointermove', onMove, { passive: false, capture: true });
-    window.addEventListener('pointerup', onEnd, { capture: true });
-    document.addEventListener('pointermove', onMove, { passive: false, capture: true });
-    document.addEventListener('pointerup', onEnd, { capture: true });
-
-    window.addEventListener('touchmove', onMove, { passive: false, capture: true });
-    window.addEventListener('touchend', onEnd, { capture: true });
-    window.addEventListener('touchcancel', onEnd, { capture: true });
-    document.addEventListener('touchmove', onMove, { passive: false, capture: true });
-    document.addEventListener('touchend', onEnd, { capture: true });
-    document.addEventListener('touchcancel', onEnd, { capture: true });
-
-    window.addEventListener('mousemove', onMove, { capture: true });
-    window.addEventListener('mouseup', onEnd, { capture: true });
-    document.addEventListener('mousemove', onMove, { capture: true });
-    document.addEventListener('mouseup', onEnd, { capture: true });
-
-    window.addEventListener('blur', onEnd);
-  }, [getActiveEngine, getContainerOffset, handleReleaseDrag, updateDragPosition]);
-
-  useEffect(() => {
-    return () => {
-      if (dragCleanupRef.current) {
-        dragCleanupRef.current();
-        dragCleanupRef.current = null;
-      }
-    };
-  }, []);
+  };
 
   const activePiece = activeDragIndex !== null ? getActiveEngine().getTray()[activeDragIndex] : null;
 
@@ -945,16 +728,72 @@ export const App: React.FC = () => {
           <MainMenu
             stats={stats}
             player={player}
+            economy={economy}
             dailyChallenge={dailyChallenge}
             dailyStreak={dailyStreak}
+            canClaimDailyReward={canClaimDailyReward}
             onPlayClassic={handleStartClassic}
             onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
             onPlayDaily={() => setScreen('DAILY_SCREEN')}
+            onOpenDailyReward={() => setShowDailyRewardModal(true)}
+            onOpenAchievements={async () => {
+              if (player) {
+                const achs = await AchievementService.getAchievements(player.id);
+                setAchievementsList(achs);
+              }
+              setScreen('ACHIEVEMENTS');
+            }}
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenLeaderboards={() => setScreen('LEADERBOARDS')}
             onOpenSocial={() => setScreen('SOCIAL')}
           />
         )}
+
+        {screen === 'ACHIEVEMENTS' && (
+          <AchievementsScreen
+            achievements={achievementsList}
+            onBack={() => setScreen('MENU')}
+          />
+        )}
+
+        {/* Daily Reward Modal */}
+        {showDailyRewardModal && player && (
+          <DailyRewardModal
+            visible={showDailyRewardModal}
+            todayDay={dailyRewardDay}
+            canClaim={canClaimDailyReward}
+            onClaim={async () => {
+              const claimRes = await DailyRewardService.claimTodayReward(player.id);
+              if (claimRes.success) {
+                setCanClaimDailyReward(false);
+                const updatedEcon = await EconomyService.getEconomy(player.id);
+                setEconomy(updatedEcon);
+
+                let coinVal = 0;
+                let xpVal = 0;
+                claimRes.rewards.forEach(r => {
+                  if (r.type === 'COINS') coinVal += r.amount;
+                  if (r.type === 'XP') xpVal += r.amount;
+                });
+
+                setActiveToast({
+                  id: Date.now(),
+                  title: `DAY ${claimRes.currentRewardDay} REWARD!`,
+                  coins: coinVal,
+                  xp: xpVal,
+                });
+              }
+              setShowDailyRewardModal(false);
+            }}
+            onClose={() => setShowDailyRewardModal(false)}
+          />
+        )}
+
+        {/* Reward Toast Notifications */}
+        <RewardToast
+          toast={activeToast}
+          onFinished={() => setActiveToast(null)}
+        />
 
         {screen === 'DAILY_SCREEN' && (
           <DailyChallengeScreen
@@ -964,8 +803,6 @@ export const App: React.FC = () => {
             onStart={async () => {
               if (dailyChallenge) {
                 audio.playButtonClick();
-                const best = await DailyChallengeService.getPlayerDailyBest(dailyChallenge.id);
-                setDailyBestScore(best);
                 adventureEngineRef.current.startLevel({
                   id: dailyChallenge.id,
                   worldId: 'daily',
@@ -1015,6 +852,7 @@ export const App: React.FC = () => {
           <View
             ref={gameContainerRef}
             style={styles.gameContainer}
+            {...panResponder.panHandlers}
             onLayout={() => {
               if (gameContainerRef.current && gameContainerRef.current.measureInWindow) {
                 gameContainerRef.current.measureInWindow((x: number, y: number) => {
@@ -1029,28 +867,22 @@ export const App: React.FC = () => {
               comboCount={comboCount}
               soundEnabled={soundEnabled}
               onToggleSound={handleToggleSound}
-              onPause={() => setShowPauseModal(true)}
-              onRestart={handleRestartGame}
+              onPause={() => setScreen('MENU')}
+              onRestart={async () => {
+                if (screen === 'ADVENTURE_GAME' && activeLevel) {
+                  adventureEngineRef.current.startLevel(activeLevel);
+                } else {
+                  classicEngineRef.current.startNewGame();
+                }
+                await syncEngineState();
+              }}
             />
 
-            {/* In-Game Objective HUD for Adventure & Daily Challenge Modes */}
+            {/* In-Game Objective HUD for Adventure Mode */}
             {screen === 'ADVENTURE_GAME' && activeLevel && (
               <View style={styles.objectiveHud}>
                 <Text style={styles.objectiveHudText}>
                   🎯 {activeLevel.name} • {ObjectiveEvaluator.getObjectiveProgress(activeLevel.objective, adventureEngineRef.current.getGameplayStats())}% Objective
-                </Text>
-                {adventureEngineRef.current.getMovesRemaining() !== null && (
-                  <Text style={styles.movesHudText}>
-                    ⚡ {adventureEngineRef.current.getMovesRemaining()} Moves
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {screen === 'DAILY_GAME' && dailyChallenge && (
-              <View style={styles.objectiveHud}>
-                <Text style={styles.objectiveHudText}>
-                  🎯 {dailyChallenge.title} • {ObjectiveEvaluator.getObjectiveProgress(dailyChallenge.objective, adventureEngineRef.current.getGameplayStats())}% Objective
                 </Text>
                 {adventureEngineRef.current.getMovesRemaining() !== null && (
                   <Text style={styles.movesHudText}>
@@ -1125,14 +957,11 @@ export const App: React.FC = () => {
             {/* Dragging Piece Floating Overlay */}
             {activeDragIndex !== null && activePiece && dragLocation && (
               <View
-                ref={dragOverlayRef}
                 style={[
                   styles.dragOverlay,
                   {
-                    transform: [
-                      { translateX: dragLocation.x },
-                      { translateY: dragLocation.y },
-                    ],
+                    left: dragLocation.x,
+                    top: dragLocation.y,
                   },
                 ]}
                 pointerEvents="none"
@@ -1141,7 +970,7 @@ export const App: React.FC = () => {
                   piece={activePiece}
                   isDragging={true}
                   scale={1.0}
-                  cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20 - (Board.SIZE - 1) * 4) / Board.SIZE : 36}
+                  cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
                 />
               </View>
             )}
@@ -1270,46 +1099,11 @@ export const App: React.FC = () => {
         {/* Pulse Power Target Selector Modal */}
         <PulseTargetSelector
           visible={showPulseSelector}
-          board={getActiveEngine().getBoard()}
           onSelectCell={async (r, c) => {
             setShowPulseSelector(false);
             audio.playNovaClear();
             haptics.novaClear();
-            const result = getActiveEngine().executePulse(r, c);
-            if (result.success && result.linesCleared && result.linesCleared > 0) {
-              audio.playClear(result.linesCleared);
-              haptics.clear();
-            }
-
-            // Check if Pulse completed Adventure level or Daily challenge
-            if (screenRef.current === 'ADVENTURE_GAME' && activeLevelRef.current) {
-              if (adventureEngineRef.current.getIsLevelComplete()) {
-                audio.playClear(3);
-                haptics.clear();
-                const levelStats = adventureEngineRef.current.getGameplayStats();
-                const stars = ObjectiveEvaluator.calculateStars(activeLevelRef.current, levelStats);
-                await handleLevelCompleted(activeLevelRef.current, levelStats.score, stars);
-              }
-            } else if (screenRef.current === 'DAILY_GAME' && dailyChallengeRef.current) {
-              if (adventureEngineRef.current.getIsLevelComplete() || getActiveEngine().getStatus() === 'GAMEOVER') {
-                const finalScore = adventureEngineRef.current.getScore();
-                setDailyCompleted(adventureEngineRef.current.getIsLevelComplete());
-                if (playerRef.current) {
-                  const res = await DailyChallengeService.submitResult(
-                    playerRef.current,
-                    dailyChallengeRef.current.id,
-                    finalScore,
-                    adventureEngineRef.current.getGameplayStats().linesCleared,
-                    adventureEngineRef.current.getGameplayStats().movesUsed,
-                    adventureEngineRef.current.getIsLevelComplete()
-                  );
-                  setDailyBestScore(res.bestScore);
-                  setDailyStreak(res.streakInfo);
-                }
-                setShowDailyResultModal(true);
-              }
-            }
-
+            getActiveEngine().executePulse(r, c);
             await syncEngineState();
           }}
           onCancel={() => setShowPulseSelector(false)}
@@ -1318,35 +1112,14 @@ export const App: React.FC = () => {
         {/* Wild Power Shape Picker Modal */}
         <WildShapePicker
           visible={showWildPicker}
-          tray={getActiveEngine().getTray()}
-          onSelectShape={async (newPiece, slotIndex) => {
+          onSelectShape={async (newPiece) => {
             setShowWildPicker(false);
             audio.playNovaPower();
             haptics.novaPower();
-            getActiveEngine().executeWild(slotIndex, newPiece);
+            getActiveEngine().executeWild(0, newPiece);
             await syncEngineState();
           }}
           onCancel={() => setShowWildPicker(false)}
-        />
-
-        {/* Pause Modal */}
-        <PauseModal
-          visible={showPauseModal}
-          modeTitle={
-            screen === 'CLASSIC'
-              ? 'Classic Mode'
-              : screen === 'ADVENTURE_GAME'
-              ? 'Adventure Mode'
-              : 'Daily Challenge'
-          }
-          currentScore={score}
-          soundEnabled={soundEnabled}
-          hapticsEnabled={hapticsEnabled}
-          onResume={() => setShowPauseModal(false)}
-          onRestart={handleRestartGame}
-          onQuit={handleQuitGame}
-          onToggleSound={handleToggleSound}
-          onToggleHaptics={handleToggleHaptics}
         />
 
           </>
@@ -1360,16 +1133,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0d0f17',
-    touchAction: 'none',
-    userSelect: 'none',
-  } as any,
+  },
   gameContainer: {
     flex: 1,
     position: 'relative',
-    justifyContent: 'space-between',
-    touchAction: 'none',
-    userSelect: 'none',
-  } as any,
+  },
   novaContainer: {
     paddingHorizontal: 16,
     marginTop: 4,
@@ -1396,11 +1164,6 @@ const styles = StyleSheet.create({
   },
   dragOverlay: {
     position: 'absolute',
-    left: 0,
-    top: 0,
     zIndex: 9999,
-    willChange: 'transform',
-    touchAction: 'none',
-    userSelect: 'none',
-  } as any,
+  },
 });

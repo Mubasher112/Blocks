@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
 import { Sparkles, X } from 'lucide-react-native';
 import { PIECE_LIBRARY } from '../../game/PieceLibrary';
@@ -6,28 +6,16 @@ import { Piece } from '../../game/Piece';
 
 interface WildShapePickerProps {
   visible: boolean;
-  onSelectShape: (piece: Piece, slotIndex: number) => void;
+  onSelectShape: (piece: Piece) => void;
   onCancel: () => void;
-  tray?: (Piece | null)[];
 }
 
 export const WildShapePicker: React.FC<WildShapePickerProps> = ({
   visible,
   onSelectShape,
   onCancel,
-  tray = [],
 }) => {
   if (!visible) return null;
-
-  // Find first active slot or default to 0
-  const firstActiveIndex = tray.findIndex(p => p !== null);
-  const initialIndex = firstActiveIndex >= 0 ? firstActiveIndex : 0;
-  const [selectedSlot, setSelectedSlot] = useState<number>(initialIndex);
-
-  useEffect(() => {
-    const active = tray.findIndex(p => p !== null);
-    setSelectedSlot(active >= 0 ? active : 0);
-  }, [visible, tray]);
 
   const selectableShapes = PIECE_LIBRARY.filter(
     t => t.id === 'dot-1' || t.id === 'line-2-h' || t.id === 'square-2x2' || t.id === 'l-2x2-1' || t.id === 'plus-3x3'
@@ -47,46 +35,18 @@ export const WildShapePicker: React.FC<WildShapePickerProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Slot Selection Row */}
-          <Text style={styles.sectionLabel}>Select Tray Slot to Replace:</Text>
-          <View style={styles.slotRow}>
-            {[0, 1, 2].map((slotIdx) => {
-              const pieceInSlot = tray[slotIdx];
-              const isSelected = selectedSlot === slotIdx;
-              return (
-                <TouchableOpacity
-                  key={slotIdx}
-                  style={[
-                    styles.slotButton,
-                    isSelected && styles.slotButtonActive,
-                    !pieceInSlot && styles.slotButtonEmpty,
-                  ]}
-                  onPress={() => setSelectedSlot(slotIdx)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.slotText, isSelected && styles.slotTextActive]}>
-                    Slot {slotIdx + 1}
-                  </Text>
-                  <Text style={styles.slotSubtext}>
-                    {pieceInSlot ? pieceInSlot.name : '(Empty)'}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
           <Text style={styles.instruction}>
-            Select a Wild shape to place into Slot {selectedSlot + 1}:
+            Select a shape to convert a tray piece into a Wild piece!
           </Text>
 
           <ScrollView contentContainerStyle={styles.pickerGrid}>
             {selectableShapes.map(shapeDef => {
-              const dummyPiece = new Piece(shapeDef, `wild-${Date.now()}`);
+              const dummyPiece = new Piece(shapeDef, 'wild-selected');
               return (
                 <TouchableOpacity
                   key={shapeDef.id}
                   style={styles.shapeOptionCard}
-                  onPress={() => onSelectShape(dummyPiece, selectedSlot)}
+                  onPress={() => onSelectShape(dummyPiece)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.shapeName}>{shapeDef.name}</Text>
@@ -135,7 +95,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 2,
     borderColor: '#FF007A',
-    maxHeight: '85%',
+    maxHeight: '80%',
   },
   header: {
     flexDirection: 'row',
@@ -153,50 +113,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  sectionLabel: {
-    color: '#E0E0F0',
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 4,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  slotRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  slotButton: {
-    flex: 1,
-    backgroundColor: '#1E2230',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#2D3245',
-  },
-  slotButtonActive: {
-    borderColor: '#FF007A',
-    backgroundColor: '#2E1A2E',
-  },
-  slotButtonEmpty: {
-    opacity: 0.7,
-  },
-  slotText: {
-    color: '#A0A0B0',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  slotTextActive: {
-    color: '#FF007A',
-    fontWeight: '900',
-  },
-  slotSubtext: {
-    color: '#707080',
-    fontSize: 9,
-    marginTop: 2,
-  },
   instruction: {
     color: '#A0A0B0',
     fontSize: 12,
@@ -210,8 +126,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   shapeOptionCard: {
-    width: 96,
-    height: 96,
+    width: 100,
+    height: 100,
     backgroundColor: '#1E2230',
     borderRadius: 10,
     borderWidth: 1,

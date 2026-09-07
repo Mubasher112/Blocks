@@ -172,4 +172,39 @@ export class StorageService {
 
     return { ...DEFAULT_ADVENTURE_PROGRESS };
   }
+
+  /**
+   * Generic item getter
+   */
+  public static async getItem<T>(key: string): Promise<T | null> {
+    try {
+      const data = await AsyncStorage.getItem(key);
+      if (data) return JSON.parse(data);
+    } catch (e) {
+      console.warn(`AsyncStorage getItem error for key ${key}:`, e);
+    }
+    return null;
+  }
+
+  /**
+   * Generic item setter
+   */
+  public static async setItem<T>(key: string, value: T): Promise<void> {
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn(`AsyncStorage setItem error for key ${key}:`, e);
+    }
+  }
+
+  /**
+   * Generic item remover
+   */
+  public static async removeItem(key: string): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch (e) {
+      console.warn(`AsyncStorage removeItem error for key ${key}:`, e);
+    }
+  }
 }

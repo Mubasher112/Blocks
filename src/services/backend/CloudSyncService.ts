@@ -2,12 +2,15 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { StorageService } from '../Storage';
 import { GameStats } from '../../game/GameEngine';
 import { AdventureProgress } from '../../game/adventure/AdventureTypes';
+import { EconomyService } from './EconomyService';
+import { PlayerEconomy } from '../../game/economy/EconomyTypes';
 
 export interface SyncResult {
   synced: boolean;
   conflictResolved: boolean;
   mergedStats: GameStats;
   mergedAdventure: AdventureProgress;
+  mergedEconomy: PlayerEconomy;
 }
 
 export class CloudSyncService {
@@ -76,11 +79,13 @@ export class CloudSyncService {
     const localAdventure = await StorageService.loadAdventureProgress();
 
     if (!isSupabaseConfigured) {
+      const localEcon = await EconomyService.getEconomy(playerId);
       return {
         synced: true,
         conflictResolved: false,
         mergedStats: localStats,
         mergedAdventure: localAdventure,
+        mergedEconomy: localEcon,
       };
     }
 
@@ -154,19 +159,24 @@ export class CloudSyncService {
         player_level: mergedAdventure.playerLevel,
       });
 
+      const cloudEcon = await EconomyService.getEconomy(playerId);
+
       return {
         synced: true,
         conflictResolved: true,
         mergedStats,
         mergedAdventure,
+        mergedEconomy: cloudEcon,
       };
     } catch (e) {
       console.warn('CloudSync error (operating offline):', e);
+      const localEcon = await EconomyService.getEconomy(playerId);
       return {
         synced: false,
         conflictResolved: false,
         mergedStats: localStats,
         mergedAdventure: localAdventure,
+        mergedEconomy: localEcon,
       };
     }
   }

@@ -66,6 +66,7 @@ declare module 'lucide-react-native' {
   export const Zap: any;
   export const Sparkles: any;
   export const Sun: any;
+  export const Gift: any;
 }
 
 declare module 'react-native-web';
