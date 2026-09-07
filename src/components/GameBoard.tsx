@@ -90,20 +90,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               let cellBg = '#131726';
               let borderColor = 'rgba(255, 255, 255, 0.05)';
 
+              const showPreview = inPreview && isValidPreview;
+
               if (isClearing) {
                 cellBg = '#ffffff';
                 borderColor = '#ffffff';
               } else if (isOccupied) {
                 cellBg = cell.color || '#00F0FF';
                 borderColor = 'rgba(255, 255, 255, 0.3)';
-              } else if (inPreview) {
-                if (isValidPreview) {
-                  cellBg = draggedPiece?.color || '#00F0FF';
-                  borderColor = '#FFFFFF';
-                } else {
-                  cellBg = 'rgba(255, 0, 85, 0.35)';
-                  borderColor = '#FF0055';
-                }
+              } else if (showPreview) {
+                cellBg = draggedPiece?.color || '#00F0FF';
+                borderColor = 'rgba(255, 255, 255, 0.7)';
               }
 
               return (
@@ -114,8 +111,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     {
                       backgroundColor: cellBg,
                       borderColor: borderColor,
-                      borderWidth: inPreview ? 2 : 1,
-                      opacity: inPreview && isValidPreview ? 0.65 : 1,
+                      borderWidth: showPreview ? 2 : 1,
+                      opacity: showPreview ? 0.6 : 1,
                     },
                   ]}
                 />

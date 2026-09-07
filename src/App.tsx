@@ -146,6 +146,8 @@ export const App: React.FC = () => {
   const draggedPieceRef = useRef<Piece | null>(null);
   const previewPosRef = useRef<{ r: number; c: number } | null>(null);
   const isValidPreviewRef = useRef<boolean>(false);
+  const dragOverlayRef = useRef<any>(null);
+  const lastPreviewRef = useRef<{ r: number; c: number; valid: boolean } | null>(null);
 
   // Dynamic state refs to prevent stale closures in PanResponder
   const screenRef = useRef<ScreenState>(screen);
@@ -513,8 +515,8 @@ export const App: React.FC = () => {
     const cellSize = usableWidth / Board.SIZE;
     const stride = cellSize + GAP;
 
-    // Vertical offset (60px) so finger doesn't obscure placement
-    const FINGER_OFFSET_Y = 60;
+    // Ergonomic vertical lift (70px) so piece floats cleanly above thumb
+    const FINGER_OFFSET_Y = 70;
     const targetX = touchX;
     const targetY = touchY - FINGER_OFFSET_Y;
 
@@ -525,35 +527,53 @@ export const App: React.FC = () => {
     const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
     const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
 
-    setDragLocation({ x: pieceLeftX, y: pieceTopY });
+    // Direct GPU transform on overlay DOM node - 120 FPS, zero React re-render lag
+    if (dragOverlayRef.current) {
+      if (dragOverlayRef.current.style) {
+        dragOverlayRef.current.style.transform = `translate3d(${pieceLeftX}px, ${pieceTopY}px, 0)`;
+      } else if (typeof dragOverlayRef.current.setNativeProps === 'function') {
+        dragOverlayRef.current.setNativeProps({
+          style: {
+            transform: [{ translateX: pieceLeftX }, { translateY: pieceTopY }],
+          },
+        });
+      }
+    }
 
     if (!layout) return;
 
-    const fingerX = targetX - (layout.x + INNER_PADDING);
-    const fingerY = targetY - (layout.y + INNER_PADDING);
+    // Exact geometric alignment with board grid cells
+    const gridOriginX = layout.x + INNER_PADDING;
+    const gridOriginY = layout.y + INNER_PADDING;
 
-    const fingerC = Math.floor(fingerX / stride);
-    const fingerR = Math.floor(fingerY / stride);
+    const screenPieceLeftX = targetX - pieceWidthPx / 2;
+    const screenPieceTopY = targetY - pieceHeightPx / 2;
 
-    const centerOffsetC = Math.floor((piece.width - 1) / 2);
-    const centerOffsetR = Math.floor((piece.height - 1) / 2);
+    const relX = screenPieceLeftX - gridOriginX;
+    const relY = screenPieceTopY - gridOriginY;
 
-    const c = fingerC - centerOffsetC;
-    const r = fingerR - centerOffsetR;
+    const c = Math.round(relX / stride);
+    const r = Math.round(relY / stride);
 
     const engine = getActiveEngine();
+    const canPlace = r >= 0 && c >= 0 && engine.getBoard().canPlacePiece(piece, r, c);
+    const targetR = canPlace ? r : -1;
+    const targetC = canPlace ? c : -1;
 
-    if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
-      const valid = engine.getBoard().canPlacePiece(piece, r, c);
-      previewPosRef.current = { r, c };
-      isValidPreviewRef.current = valid;
-      setPreviewPos({ r, c });
-      setIsValidPreview(valid);
-    } else {
-      previewPosRef.current = null;
-      isValidPreviewRef.current = false;
-      setPreviewPos(null);
-      setIsValidPreview(false);
+    const last = lastPreviewRef.current;
+    if (!last || last.r !== targetR || last.c !== targetC || last.valid !== canPlace) {
+      lastPreviewRef.current = { r: targetR, c: targetC, valid: canPlace };
+      if (canPlace) {
+        previewPosRef.current = { r, c };
+        isValidPreviewRef.current = true;
+        setPreviewPos({ r, c });
+        setIsValidPreview(true);
+      } else {
+        previewPosRef.current = null;
+        isValidPreviewRef.current = false;
+        setPreviewPos(null);
+        setIsValidPreview(false);
+      }
     }
   }, [getActiveEngine, getContainerOffset]);
 
@@ -577,6 +597,7 @@ export const App: React.FC = () => {
     draggedPieceRef.current = null;
     previewPosRef.current = null;
     isValidPreviewRef.current = false;
+    lastPreviewRef.current = null;
 
     setActiveDragIndex(null);
     setDragLocation(null);
@@ -791,7 +812,25 @@ export const App: React.FC = () => {
 
     activeDragIndexRef.current = index;
     draggedPieceRef.current = piece;
+    lastPreviewRef.current = null;
+
+    const INNER_PADDING = 10;
+    const GAP = 4;
+    const layout = boardLayoutRef.current;
+    const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
+    const cellSize = usableWidth / Board.SIZE;
+    const stride = cellSize + GAP;
+    const FINGER_OFFSET_Y = 70;
+    const targetX = startX;
+    const targetY = startY - FINGER_OFFSET_Y;
+    const pieceWidthPx = piece.width * stride - GAP;
+    const pieceHeightPx = piece.height * stride - GAP;
+    const containerOffset = getContainerOffset();
+    const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
+    const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
+
     setActiveDragIndex(index);
+    setDragLocation({ x: pieceLeftX, y: pieceTopY });
 
     // Initial position calculation right at touch coordinates
     updateDragPosition(startX, startY);
@@ -885,7 +924,7 @@ export const App: React.FC = () => {
     document.addEventListener('mouseup', onEnd, { capture: true });
 
     window.addEventListener('blur', onEnd);
-  }, [getActiveEngine, handleReleaseDrag, updateDragPosition]);
+  }, [getActiveEngine, getContainerOffset, handleReleaseDrag, updateDragPosition]);
 
   useEffect(() => {
     return () => {
@@ -1090,11 +1129,14 @@ export const App: React.FC = () => {
             {/* Dragging Piece Floating Overlay */}
             {activeDragIndex !== null && activePiece && dragLocation && (
               <View
+                ref={dragOverlayRef}
                 style={[
                   styles.dragOverlay,
                   {
-                    left: dragLocation.x,
-                    top: dragLocation.y,
+                    transform: [
+                      { translateX: dragLocation.x },
+                      { translateY: dragLocation.y },
+                    ],
                   },
                 ]}
                 pointerEvents="none"
@@ -1357,6 +1399,11 @@ const styles = StyleSheet.create({
   },
   dragOverlay: {
     position: 'absolute',
+    left: 0,
+    top: 0,
     zIndex: 9999,
-  },
+    willChange: 'transform',
+    touchAction: 'none',
+    userSelect: 'none',
+  } as any,
 });

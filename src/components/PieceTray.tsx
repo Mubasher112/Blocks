@@ -16,52 +16,51 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
 }) => {
   return (
     <View style={styles.trayContainer}>
-      {tray.map((piece, index) => (
-        <View
-          key={index}
-          style={styles.traySlot}
-          onPointerDown={(e: any) => {
-            if (piece && activeDragIndex === null) {
-              if (e.target && typeof e.target.setPointerCapture === 'function' && e.pointerId !== undefined) {
-                try {
-                  e.target.setPointerCapture(e.pointerId);
-                } catch (_) {}
-              }
-              const pageX = e.pageX ?? e.clientX ?? 0;
-              const pageY = e.pageY ?? e.clientY ?? 0;
-              onGrantTouch(index, pageX, pageY);
-            }
-          }}
-          onTouchStart={(e: any) => {
-            if (piece && activeDragIndex === null) {
-              if (e.cancelable) e.preventDefault();
-              const nativeEvt = e.nativeEvent || e;
-              const touch = nativeEvt.touches?.[0] || nativeEvt.changedTouches?.[0] || nativeEvt;
-              let pageX = touch?.pageX;
-              let pageY = touch?.pageY;
+      {tray.map((piece, index) => {
+        const handleStart = (e: any) => {
+          if (!piece || activeDragIndex !== null) return;
+          if (e.cancelable) e.preventDefault();
 
-              if (typeof pageX !== 'number' || isNaN(pageX) || typeof pageY !== 'number' || isNaN(pageY)) {
-                if (e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function') {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  pageX = rect.left + rect.width / 2;
-                  pageY = rect.top + rect.height / 2;
-                } else {
-                  pageX = 0;
-                  pageY = 0;
-                }
-              }
+          let pageX: number | undefined;
+          let pageY: number | undefined;
 
-              onGrantTouch(index, pageX, pageY);
+          const nativeEvt = e.nativeEvent || e;
+          const touch = nativeEvt.touches?.[0] || nativeEvt.changedTouches?.[0];
+          if (touch) {
+            pageX = touch.pageX;
+            pageY = touch.pageY;
+          } else if (typeof e.pageX === 'number') {
+            pageX = e.pageX;
+            pageY = e.pageY;
+          } else if (typeof e.clientX === 'number') {
+            pageX = e.clientX;
+            pageY = e.clientY;
+          }
+
+          if (typeof pageX !== 'number' || isNaN(pageX) || typeof pageY !== 'number' || isNaN(pageY)) {
+            if (e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function') {
+              const rect = e.currentTarget.getBoundingClientRect();
+              pageX = rect.left + rect.width / 2;
+              pageY = rect.top + rect.height / 2;
+            } else {
+              pageX = 0;
+              pageY = 0;
             }
-          }}
-          onMouseDown={(e: any) => {
-            if (piece && activeDragIndex === null) {
-              const pageX = e.pageX ?? e.clientX ?? 0;
-              const pageY = e.pageY ?? e.clientY ?? 0;
-              onGrantTouch(index, pageX, pageY);
-            }
-          }}
-        >
+          }
+
+          if (typeof pageX === 'number' && typeof pageY === 'number') {
+            onGrantTouch(index, pageX, pageY);
+          }
+        };
+
+        return (
+          <View
+            key={index}
+            style={styles.traySlot}
+            onPointerDown={handleStart}
+            onTouchStart={handleStart}
+            onMouseDown={handleStart}
+          >
           {piece && (
             <View
               style={{
@@ -73,7 +72,8 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
             </View>
           )}
         </View>
-      ))}
+      );
+    })}
     </View>
   );
 };
