@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
-import { Sparkles, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react-native';
 import { PIECE_LIBRARY } from '../../game/PieceLibrary';
 import { Piece } from '../../game/Piece';
 

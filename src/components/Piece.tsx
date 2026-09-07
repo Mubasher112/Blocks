@@ -6,12 +6,14 @@ interface PieceProps {
   piece: PieceModel;
   isDragging?: boolean;
   scale?: number;
+  cellSize?: number;
 }
 
 export const PieceComponent: React.FC<PieceProps> = ({
   piece,
   isDragging = false,
   scale = 1,
+  cellSize = 30,
 }) => {
   return (
     <View
@@ -32,6 +34,8 @@ export const PieceComponent: React.FC<PieceProps> = ({
                 style={[
                   styles.pieceCell,
                   {
+                    width: cellSize,
+                    height: cellSize,
                     backgroundColor: cell === 1 ? piece.color : 'transparent',
                     borderColor: cell === 1 ? 'rgba(255, 255, 255, 0.3)' : 'transparent',
                   },
@@ -51,15 +55,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pieceGrid: {
-    gap: 3,
+    gap: 4,
   },
   pieceRow: {
     flexDirection: 'row',
-    gap: 3,
+    gap: 4,
   },
   pieceCell: {
-    width: 30,
-    height: 30,
     borderRadius: 6,
     borderWidth: 1,
   },

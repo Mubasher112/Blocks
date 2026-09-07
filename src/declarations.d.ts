@@ -60,6 +60,11 @@ declare module 'lucide-react-native' {
   export const X: any;
   export const Target: any;
   export const LogOut: any;
+  export const Calendar: any;
+  export const ChevronRight: any;
+  export const Zap: any;
+  export const Sparkles: any;
+  export const Sun: any;
 }
 
 declare module 'react-native-web';

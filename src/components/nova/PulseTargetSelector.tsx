@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
-import { Zap, X } from 'lucide-react';
+import { Zap, X } from 'lucide-react-native';
 
 interface PulseTargetSelectorProps {
   visible: boolean;

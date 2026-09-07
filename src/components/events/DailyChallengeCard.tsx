@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Calendar, Flame, ChevronRight } from 'lucide-react';
+import { Calendar, Flame, ChevronRight } from 'lucide-react-native';
 import { DailyChallenge, StreakInfo } from '../../game/events/DailyChallengeTypes';
 
 interface DailyChallengeCardProps {

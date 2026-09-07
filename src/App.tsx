@@ -123,6 +123,8 @@ export const App: React.FC = () => {
 
   // Geometry ref
   const boardLayoutRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const gameContainerRef = useRef<any>(null);
+  const containerLayoutRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Drag Interaction States
   const [activeDragIndex, setActiveDragIndex] = useState<number | null>(null);
@@ -354,8 +356,8 @@ export const App: React.FC = () => {
   // Touch Drag-and-Drop PanResponder Implementation
   const panResponder = useRef<PanResponderInstance>(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => activeDragIndexRef.current !== null,
+      onMoveShouldSetPanResponder: () => activeDragIndexRef.current !== null,
       onPanResponderMove: (evt: GestureResponderEvent) => {
         const index = activeDragIndexRef.current;
         const piece = draggedPieceRef.current;
@@ -366,17 +368,41 @@ export const App: React.FC = () => {
         const touchX = evt.nativeEvent.pageX;
         const touchY = evt.nativeEvent.pageY;
 
-        setDragLocation({ x: touchX, y: touchY });
+        // Board padding (10px) and cell gap (4px) inside GameBoard.tsx
+        const INNER_PADDING = 10;
+        const GAP = 4;
 
-        const cellSize = layout.width / Board.SIZE;
-        const pieceWidthPx = piece.width * cellSize;
-        const pieceHeightPx = piece.height * cellSize;
+        const usableWidth = layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP;
+        const cellSize = usableWidth / Board.SIZE;
+        const stride = cellSize + GAP;
 
-        const boardX = touchX - layout.x - pieceWidthPx / 2 + cellSize / 2;
-        const boardY = touchY - layout.y - pieceHeightPx / 2 + cellSize / 2;
+        // Vertical lift offset (60px) so player's thumb does not obscure target board cells
+        const FINGER_OFFSET_Y = 60;
+        const targetX = touchX;
+        const targetY = touchY - FINGER_OFFSET_Y;
 
-        const c = Math.floor(boardX / cellSize);
-        const r = Math.floor(boardY / cellSize);
+        const pieceWidthPx = piece.width * stride - GAP;
+        const pieceHeightPx = piece.height * stride - GAP;
+
+        // Continuous top-left coordinate of floating piece in screen space
+        const pieceLeftX = targetX - pieceWidthPx / 2;
+        const pieceTopY = targetY - pieceHeightPx / 2;
+
+        setDragLocation({ x: pieceLeftX, y: pieceTopY });
+
+        // Calculate target board cell directly under the piece's center target point
+        const fingerX = targetX - (layout.x + INNER_PADDING);
+        const fingerY = targetY - (layout.y + INNER_PADDING);
+
+        const fingerC = Math.floor(fingerX / stride);
+        const fingerR = Math.floor(fingerY / stride);
+
+        // Center piece occupied cells over target cell
+        const centerOffsetC = Math.floor((piece.width - 1) / 2);
+        const centerOffsetR = Math.floor((piece.height - 1) / 2);
+
+        const c = fingerC - centerOffsetC;
+        const r = fingerR - centerOffsetR;
 
         const engine = getActiveEngine();
 
@@ -556,8 +582,22 @@ export const App: React.FC = () => {
     activeDragIndexRef.current = index;
     draggedPieceRef.current = piece;
 
+    const FINGER_OFFSET_Y = 60;
+    const INNER_PADDING = 10;
+    const GAP = 4;
+    const layout = boardLayoutRef.current;
+    const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
+    const cellSize = usableWidth / Board.SIZE;
+    const stride = cellSize + GAP;
+
+    const pieceWidthPx = piece.width * stride - GAP;
+    const pieceHeightPx = piece.height * stride - GAP;
+
+    const pieceLeftX = startX - pieceWidthPx / 2;
+    const pieceTopY = (startY - FINGER_OFFSET_Y) - pieceHeightPx / 2;
+
     setActiveDragIndex(index);
-    setDragLocation({ x: startX, y: startY });
+    setDragLocation({ x: pieceLeftX, y: pieceTopY });
   };
 
   const activePiece = activeDragIndex !== null ? getActiveEngine().getTray()[activeDragIndex] : null;
@@ -635,7 +675,18 @@ export const App: React.FC = () => {
         )}
 
         {(screen === 'CLASSIC' || screen === 'ADVENTURE_GAME' || screen === 'DAILY_GAME') && (
-          <View style={styles.gameContainer} {...panResponder.panHandlers}>
+          <View
+            ref={gameContainerRef}
+            style={styles.gameContainer}
+            {...panResponder.panHandlers}
+            onLayout={() => {
+              if (gameContainerRef.current && gameContainerRef.current.measureInWindow) {
+                gameContainerRef.current.measureInWindow((x: number, y: number) => {
+                  containerLayoutRef.current = { x, y };
+                });
+              }
+            }}
+          >
             <GameHeader
               score={score}
               highScore={highScore}
@@ -734,13 +785,18 @@ export const App: React.FC = () => {
                 style={[
                   styles.dragOverlay,
                   {
-                    left: dragLocation.x - 60,
-                    top: dragLocation.y - 80,
+                    left: dragLocation.x - containerLayoutRef.current.x,
+                    top: dragLocation.y - containerLayoutRef.current.y,
                   },
                 ]}
                 pointerEvents="none"
               >
-                <PieceComponent piece={activePiece} isDragging={true} scale={1.1} />
+                <PieceComponent
+                  piece={activePiece}
+                  isDragging={true}
+                  scale={1.0}
+                  cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
+                />
               </View>
             )}
 

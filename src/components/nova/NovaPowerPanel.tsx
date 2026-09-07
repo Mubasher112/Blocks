@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Zap, Sparkles, RefreshCw, RotateCcw, Sun } from 'lucide-react';
+import { Zap, Sparkles, RefreshCw, RotateCcw, Sun } from 'lucide-react-native';
 import { NovaPowerId, NovaState } from '../../game/nova/NovaTypes';
 import { NOVA_POWERS } from '../../game/nova/NovaPowers';
 

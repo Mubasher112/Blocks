@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, LayoutChangeEvent } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Board } from '../game/Board';
 import { Piece } from '../game/Piece';
 
@@ -23,6 +23,29 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   onLayoutBoard,
 }) => {
   const grid = board.getGrid();
+  const boardGridRef = React.useRef<any>(null);
+
+  const measureBoard = () => {
+    if (boardGridRef.current) {
+      if (boardGridRef.current.measureInWindow) {
+        boardGridRef.current.measureInWindow(
+          (x: number, y: number, width: number, height: number) => {
+            if (width > 0 && height > 0) {
+              onLayoutBoard(x, y, width, height);
+            }
+          }
+        );
+      } else if (boardGridRef.current.measure) {
+        boardGridRef.current.measure(
+          (_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
+            if (width > 0 && height > 0) {
+              onLayoutBoard(pageX, pageY, width, height);
+            }
+          }
+        );
+      }
+    }
+  };
 
   const isCellInPreview = (r: number, c: number): boolean => {
     if (!draggedPiece || !previewPos) return false;
@@ -34,10 +57,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   return (
     <View style={styles.boardWrapper}>
       <View
+        ref={boardGridRef}
         style={styles.boardGrid}
-        onLayout={(e: LayoutChangeEvent) => {
-          const { x, y, width, height } = e.nativeEvent.layout;
-          onLayoutBoard(x, y, width, height);
+        onLayout={() => {
+          measureBoard();
+          // Re-measure after layout stabilizes
+          setTimeout(measureBoard, 100);
         }}
       >
         {grid.map((row, r) => (
@@ -52,15 +77,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
               if (isClearing) {
                 cellBg = '#ffffff';
+                borderColor = '#ffffff';
               } else if (isOccupied) {
                 cellBg = cell.color || '#00F0FF';
                 borderColor = 'rgba(255, 255, 255, 0.3)';
               } else if (inPreview) {
                 if (isValidPreview) {
                   cellBg = draggedPiece?.color || '#00F0FF';
+                  borderColor = '#FFFFFF';
                 } else {
-                  cellBg = 'rgba(255, 0, 85, 0.4)';
-                  borderColor = '#ff0055';
+                  cellBg = 'rgba(255, 0, 85, 0.35)';
+                  borderColor = '#FF0055';
                 }
               }
 
@@ -72,7 +99,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     {
                       backgroundColor: cellBg,
                       borderColor: borderColor,
-                      opacity: inPreview && isValidPreview ? 0.7 : 1,
+                      borderWidth: inPreview ? 2 : 1,
+                      opacity: inPreview && isValidPreview ? 0.65 : 1,
                     },
                   ]}
                 />

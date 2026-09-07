@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Zap, Sparkles } from 'lucide-react';
+import { Zap, Sparkles } from 'lucide-react-native';
 import { NovaState } from '../../game/nova/NovaTypes';
 import { NOVA_CONFIG } from '../../game/nova/NovaConfig';
 

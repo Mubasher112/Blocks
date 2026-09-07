@@ -20,8 +20,7 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
         <View
           key={index}
           style={styles.traySlot}
-          onStartShouldSetResponder={() => piece !== null && activeDragIndex === null}
-          onResponderGrant={(e: GestureResponderEvent) => {
+          onTouchStart={(e: GestureResponderEvent) => {
             if (piece && activeDragIndex === null) {
               const { pageX, pageY } = e.nativeEvent;
               onGrantTouch(index, pageX, pageY);

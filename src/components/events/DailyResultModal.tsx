@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
-import { Trophy, Flame, RefreshCw, Home } from 'lucide-react';
+import { Trophy, Flame, RefreshCw, Home } from 'lucide-react-native';
 import { DailyChallenge, StreakInfo } from '../../game/events/DailyChallengeTypes';
 
 interface DailyResultModalProps {
