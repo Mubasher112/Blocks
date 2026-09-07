@@ -3,9 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  PanResponder,
-  PanResponderInstance,
-  GestureResponderEvent,
   BackHandler,
   AppState,
   AppStateStatus,
@@ -498,306 +495,275 @@ export const App: React.FC = () => {
     return undefined;
   }, [screen, updateContainerMeasurement]);
 
-  // Touch Drag-and-Drop PanResponder Implementation
-  const panResponder = useRef<PanResponderInstance>(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => activeDragIndexRef.current !== null,
-      onMoveShouldSetPanResponder: () => activeDragIndexRef.current !== null,
-      onPanResponderMove: (evt: GestureResponderEvent) => {
-        const index = activeDragIndexRef.current;
-        const piece = draggedPieceRef.current;
-        const layout = boardLayoutRef.current;
+  // Ref to hold window listener unbind callback
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
-        if (index === null || !piece || !layout) return;
+  // Synchronous update of dragged piece floating coordinates and board preview
+  const updateDragPosition = useCallback((touchX: number, touchY: number) => {
+    const index = activeDragIndexRef.current;
+    const piece = draggedPieceRef.current;
+    const layout = boardLayoutRef.current;
 
-        const nativeEvt = (evt as any).nativeEvent || evt;
-        const touch = nativeEvt.touches?.[0] || nativeEvt.changedTouches?.[0] || nativeEvt;
-        const touchX = touch?.pageX ?? evt.nativeEvent.pageX;
-        const touchY = touch?.pageY ?? evt.nativeEvent.pageY;
+    if (index === null || !piece) return;
 
-        if (typeof touchX !== 'number' || isNaN(touchX) || typeof touchY !== 'number' || isNaN(touchY)) {
-          return;
-        }
+    const INNER_PADDING = 10;
+    const GAP = 4;
 
-        // Board padding (10px) and cell gap (4px) inside GameBoard.tsx
-        const INNER_PADDING = 10;
-        const GAP = 4;
+    const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
+    const cellSize = usableWidth / Board.SIZE;
+    const stride = cellSize + GAP;
 
-        const usableWidth = layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP;
-        const cellSize = usableWidth / Board.SIZE;
-        const stride = cellSize + GAP;
+    // Vertical offset (60px) so finger doesn't obscure placement
+    const FINGER_OFFSET_Y = 60;
+    const targetX = touchX;
+    const targetY = touchY - FINGER_OFFSET_Y;
 
-        // Vertical lift offset (60px) so player's thumb does not obscure target board cells
-        const FINGER_OFFSET_Y = 60;
-        const targetX = touchX;
-        const targetY = touchY - FINGER_OFFSET_Y;
+    const pieceWidthPx = piece.width * stride - GAP;
+    const pieceHeightPx = piece.height * stride - GAP;
 
-        const pieceWidthPx = piece.width * stride - GAP;
-        const pieceHeightPx = piece.height * stride - GAP;
+    const containerOffset = getContainerOffset();
+    const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
+    const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
 
-        const containerOffset = getContainerOffset();
-        // Continuous top-left coordinate of floating piece in container space
-        const pieceLeftX = (targetX - containerOffset.x) - pieceWidthPx / 2;
-        const pieceTopY = (targetY - containerOffset.y) - pieceHeightPx / 2;
+    setDragLocation({ x: pieceLeftX, y: pieceTopY });
 
-        setDragLocation({ x: pieceLeftX, y: pieceTopY });
+    if (!layout) return;
 
-        // Calculate target board cell directly under the piece's center target point
-        const fingerX = targetX - (layout.x + INNER_PADDING);
-        const fingerY = targetY - (layout.y + INNER_PADDING);
+    const fingerX = targetX - (layout.x + INNER_PADDING);
+    const fingerY = targetY - (layout.y + INNER_PADDING);
 
-        const fingerC = Math.floor(fingerX / stride);
-        const fingerR = Math.floor(fingerY / stride);
+    const fingerC = Math.floor(fingerX / stride);
+    const fingerR = Math.floor(fingerY / stride);
 
-        // Center piece occupied cells over target cell
-        const centerOffsetC = Math.floor((piece.width - 1) / 2);
-        const centerOffsetR = Math.floor((piece.height - 1) / 2);
+    const centerOffsetC = Math.floor((piece.width - 1) / 2);
+    const centerOffsetR = Math.floor((piece.height - 1) / 2);
 
-        const c = fingerC - centerOffsetC;
-        const r = fingerR - centerOffsetR;
+    const c = fingerC - centerOffsetC;
+    const r = fingerR - centerOffsetR;
 
-        const engine = getActiveEngine();
+    const engine = getActiveEngine();
 
-        if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
-          const valid = engine.getBoard().canPlacePiece(piece, r, c);
-          previewPosRef.current = { r, c };
-          isValidPreviewRef.current = valid;
-          setPreviewPos({ r, c });
-          setIsValidPreview(valid);
-        } else {
-          previewPosRef.current = null;
-          isValidPreviewRef.current = false;
-          setPreviewPos(null);
-          setIsValidPreview(false);
-        }
-      },
-      onPanResponderRelease: async () => {
-        const index = activeDragIndexRef.current;
-        const piece = draggedPieceRef.current;
-        const pos = previewPosRef.current;
-        const isValid = isValidPreviewRef.current;
-        const currentScreen = screenRef.current;
-        const currentPlayer = playerRef.current;
+    if (r >= 0 && r < Board.SIZE && c >= 0 && c < Board.SIZE) {
+      const valid = engine.getBoard().canPlacePiece(piece, r, c);
+      previewPosRef.current = { r, c };
+      isValidPreviewRef.current = valid;
+      setPreviewPos({ r, c });
+      setIsValidPreview(valid);
+    } else {
+      previewPosRef.current = null;
+      isValidPreviewRef.current = false;
+      setPreviewPos(null);
+      setIsValidPreview(false);
+    }
+  }, [getActiveEngine, getContainerOffset]);
 
-        if (index !== null && piece && pos && isValid) {
-          if (currentScreen === 'DAILY_GAME' && dailyChallengeRef.current) {
-            const currentChallenge = dailyChallengeRef.current;
-            // Daily Challenge Gameplay Loop
-            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-            if (moveResult.success) {
-              audio.playPlace();
-              haptics.place();
+  // Handle piece drop / release
+  const handleReleaseDrag = useCallback(async () => {
+    // Clear global listener references
+    if (dragCleanupRef.current) {
+      dragCleanupRef.current();
+      dragCleanupRef.current = null;
+    }
 
-              if (moveResult.linesCleared > 0) {
-                audio.playClear(moveResult.linesCleared);
-                haptics.clear();
+    const index = activeDragIndexRef.current;
+    const piece = draggedPieceRef.current;
+    const pos = previewPosRef.current;
+    const isValid = isValidPreviewRef.current;
+    const currentScreen = screenRef.current;
+    const currentPlayer = playerRef.current;
 
-                const clearSet = new Set<string>();
-                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-                setClearingCells(clearSet);
+    if (index !== null && piece && pos && isValid) {
+      if (currentScreen === 'DAILY_GAME' && dailyChallengeRef.current) {
+        const currentChallenge = dailyChallengeRef.current;
+        const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
+        if (moveResult.success) {
+          audio.playPlace();
+          haptics.place();
 
-                setTimeout(() => setClearingCells(new Set()), 300);
+          if (moveResult.linesCleared > 0) {
+            audio.playClear(moveResult.linesCleared);
+            haptics.clear();
 
-                const scoreId = Date.now();
-                setFloatingScores(prev => [
-                  ...prev,
-                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
-                ]);
+            const clearSet = new Set<string>();
+            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+            setClearingCells(clearSet);
+            setTimeout(() => setClearingCells(new Set()), 300);
 
-                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
+            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+            const scoreId = Date.now();
+            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
 
-                // Splash text overlay feedback
-                let splashTitle = '';
-                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
-                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+            let splashTitle: string | undefined;
+            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
 
-                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-
-                if (splashTitle && splashType) {
-                  const splashId = Date.now();
-                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                  audio.playSplashAudio(splashType);
-                  setTimeout(() => setSplashOverlay(null), 1000);
-                }
-              }
-
-              if (moveResult.comboCount > 1) {
-                audio.playCombo(moveResult.comboCount);
-                haptics.combo();
-              }
-
-              if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
-                const finalScore = adventureEngineRef.current.getScore();
-                setDailyCompleted(moveResult.isObjectiveComplete);
-
-                if (currentPlayer) {
-                  const res = await DailyChallengeService.submitResult(
-                    currentPlayer,
-                    currentChallenge.id,
-                    finalScore,
-                    adventureEngineRef.current.getGameplayStats().linesCleared,
-                    adventureEngineRef.current.getGameplayStats().movesUsed,
-                    moveResult.isObjectiveComplete
-                  );
-                  setDailyBestScore(res.bestScore);
-                  setDailyStreak(res.streakInfo);
-                }
-
-                setShowDailyResultModal(true);
-              }
-
-              await syncEngineState();
-            }
-          } else if (currentScreen === 'ADVENTURE_GAME' && activeLevelRef.current) {
-            const currentLevel = activeLevelRef.current;
-            const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
-
-            if (moveResult.success) {
-              audio.playPlace();
-              haptics.place();
-
-              if (moveResult.linesCleared > 0) {
-                audio.playClear(moveResult.linesCleared);
-                haptics.clear();
-
-                const clearSet = new Set<string>();
-                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-                setClearingCells(clearSet);
-
-                setTimeout(() => setClearingCells(new Set()), 300);
-
-                const scoreId = Date.now();
-                setFloatingScores(prev => [
-                  ...prev,
-                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
-                ]);
-
-                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
-
-                // Splash text overlay feedback
-                let splashTitle = '';
-                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
-                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-
-                if (splashTitle && splashType) {
-                  const splashId = Date.now();
-                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                  audio.playSplashAudio(splashType);
-                  setTimeout(() => setSplashOverlay(null), 1000);
-                }
-              }
-
-              if (moveResult.comboCount > 1) {
-                audio.playCombo(moveResult.comboCount);
-                haptics.combo();
-              }
-
-              // Check level success or failure
-              if (moveResult.isObjectiveComplete) {
-                audio.playClear(3);
-                haptics.clear();
-                await handleLevelCompleted(currentLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
-              } else if (moveResult.isGameOver) {
-                audio.playGameOver();
-                haptics.gameOver();
-                setShowFailedModal(true);
-              }
-
-              await syncEngineState();
-            }
-          } else {
-            // Classic Game Placement
-            const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
-
-            if (moveResult.success) {
-              audio.playPlace();
-              haptics.place();
-
-              if (moveResult.linesCleared > 0) {
-                audio.playClear(moveResult.linesCleared);
-                haptics.clear();
-
-                const clearSet = new Set<string>();
-                moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
-                setClearingCells(clearSet);
-
-                setTimeout(() => setClearingCells(new Set()), 300);
-
-                const scoreId = Date.now();
-                setFloatingScores(prev => [
-                  ...prev,
-                  { id: scoreId, score: moveResult.scoreGained, r: pos.r, c: pos.c },
-                ]);
-
-                setTimeout(() => setFloatingScores(prev => prev.filter(item => item.id !== scoreId)), 800);
-
-                // Splash text overlay feedback
-                let splashTitle = '';
-                let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | null = null;
-                if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
-                else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
-                else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
-                else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
-
-                let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
-
-                if (splashTitle && splashType) {
-                  const splashId = Date.now();
-                  setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
-                  audio.playSplashAudio(splashType);
-                  setTimeout(() => setSplashOverlay(null), 1000);
-                }
-              }
-
-              if (moveResult.comboCount > 1) {
-                audio.playCombo(moveResult.comboCount);
-                haptics.combo();
-              }
-
-              if (moveResult.isGameOver) {
-                audio.playGameOver();
-                haptics.gameOver();
-              }
-
-              await syncEngineState();
+            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+            if (splashTitle && splashType) {
+              const splashId = Date.now();
+              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+              audio.playSplashAudio(splashType);
+              setTimeout(() => setSplashOverlay(null), 1000);
             }
           }
+
+          if (moveResult.comboCount > 1) {
+            audio.playCombo(moveResult.comboCount);
+            haptics.combo();
+          }
+
+          if (moveResult.isObjectiveComplete || moveResult.isGameOver) {
+            const finalScore = adventureEngineRef.current.getScore();
+            setDailyCompleted(moveResult.isObjectiveComplete);
+
+            if (currentPlayer) {
+              const res = await DailyChallengeService.submitResult(
+                currentPlayer,
+                currentChallenge.id,
+                finalScore,
+                adventureEngineRef.current.getGameplayStats().linesCleared,
+                adventureEngineRef.current.getGameplayStats().movesUsed,
+                moveResult.isObjectiveComplete
+              );
+              setDailyBestScore(res.bestScore);
+              setDailyStreak(res.streakInfo);
+            }
+
+            setShowDailyResultModal(true);
+          }
+
+          await syncEngineState();
         }
+      } else if (currentScreen === 'ADVENTURE_GAME' && activeLevelRef.current) {
+        const currentLevel = activeLevelRef.current;
+        const moveResult = adventureEngineRef.current.placeAdventurePiece(index, pos.r, pos.c);
 
-        activeDragIndexRef.current = null;
-        draggedPieceRef.current = null;
-        previewPosRef.current = null;
-        isValidPreviewRef.current = false;
+        if (moveResult.success) {
+          audio.playPlace();
+          haptics.place();
 
-        setActiveDragIndex(null);
-        setDragLocation(null);
-        setPreviewPos(null);
-        setIsValidPreview(false);
-      },
-      onPanResponderTerminate: () => {
-        activeDragIndexRef.current = null;
-        draggedPieceRef.current = null;
-        previewPosRef.current = null;
-        isValidPreviewRef.current = false;
+          if (moveResult.linesCleared > 0) {
+            audio.playClear(moveResult.linesCleared);
+            haptics.clear();
 
-        setActiveDragIndex(null);
-        setDragLocation(null);
-        setPreviewPos(null);
-        setIsValidPreview(false);
-      },
-    })
-  ).current;
+            const clearSet = new Set<string>();
+            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+            setClearingCells(clearSet);
+            setTimeout(() => setClearingCells(new Set()), 300);
 
-  // Handle start touch on piece slot
-  const handleStartDrag = (index: number, startX: number, startY: number) => {
+            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+            const scoreId = Date.now();
+            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
+
+            let splashTitle: string | undefined;
+            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+            if (splashTitle && splashType) {
+              const splashId = Date.now();
+              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+              audio.playSplashAudio(splashType);
+              setTimeout(() => setSplashOverlay(null), 1000);
+            }
+          }
+
+          if (moveResult.comboCount > 1) {
+            audio.playCombo(moveResult.comboCount);
+            haptics.combo();
+          }
+
+          if (moveResult.isObjectiveComplete) {
+            audio.playClear(3);
+            haptics.clear();
+            await handleLevelCompleted(currentLevel, adventureEngineRef.current.getScore(), moveResult.starsEarned);
+          } else if (moveResult.isGameOver) {
+            audio.playGameOver();
+            haptics.gameOver();
+            setShowFailedModal(true);
+          }
+
+          await syncEngineState();
+        }
+      } else {
+        // Classic Game Placement
+        const moveResult = classicEngineRef.current.placePiece(index, pos.r, pos.c);
+
+        if (moveResult.success) {
+          audio.playPlace();
+          haptics.place();
+
+          if (moveResult.linesCleared > 0) {
+            audio.playClear(moveResult.linesCleared);
+            haptics.clear();
+
+            const clearSet = new Set<string>();
+            moveResult.clearedCells.forEach(cell => clearSet.add(`${cell.r},${cell.c}`));
+            setClearingCells(clearSet);
+            setTimeout(() => setClearingCells(new Set()), 300);
+
+            const centerR = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.r, 0) / moveResult.clearedCells.length);
+            const centerC = Math.round(moveResult.clearedCells.reduce((sum, c) => sum + c.c, 0) / moveResult.clearedCells.length);
+            const scoreId = Date.now();
+            setFloatingScores(prev => [...prev, { id: scoreId, score: moveResult.scoreGained, r: centerR, c: centerC }]);
+            setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== scoreId)), 800);
+
+            let splashTitle: string | undefined;
+            let splashType: 'GREAT' | 'EXCELLENT' | 'SUPERB' | 'NOVA_CLEAR' | undefined;
+            if (moveResult.isNovaClear) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+            else if (moveResult.linesCleared === 1) { splashTitle = 'GREAT!'; splashType = 'GREAT'; }
+            else if (moveResult.linesCleared === 2) { splashTitle = 'EXCELLENT!'; splashType = 'EXCELLENT'; }
+            else if (moveResult.linesCleared === 3) { splashTitle = 'SUPERB!'; splashType = 'SUPERB'; }
+            else if (moveResult.linesCleared >= 4) { splashTitle = 'NOVA CLEAR!'; splashType = 'NOVA_CLEAR'; }
+
+            let splashSub = moveResult.comboCount > 1 ? `COMBO x${moveResult.comboCount}` : undefined;
+            if (splashTitle && splashType) {
+              const splashId = Date.now();
+              setSplashOverlay({ id: splashId, text: splashTitle, subtext: splashSub });
+              audio.playSplashAudio(splashType);
+              setTimeout(() => setSplashOverlay(null), 1000);
+            }
+          }
+
+          if (moveResult.comboCount > 1) {
+            audio.playCombo(moveResult.comboCount);
+            haptics.combo();
+          }
+
+          if (moveResult.isGameOver) {
+            audio.playGameOver();
+            haptics.gameOver();
+          }
+
+          await syncEngineState();
+        }
+      }
+    }
+
+    activeDragIndexRef.current = null;
+    draggedPieceRef.current = null;
+    previewPosRef.current = null;
+    isValidPreviewRef.current = false;
+
+    setActiveDragIndex(null);
+    setDragLocation(null);
+    setPreviewPos(null);
+    setIsValidPreview(false);
+  }, [handleLevelCompleted, syncEngineState]);
+
+  // Fast, Block-Blast-style single-touch drag interaction
+  const handleStartDrag = useCallback((index: number, startX: number, startY: number) => {
     if (typeof startX !== 'number' || isNaN(startX) || typeof startY !== 'number' || isNaN(startY)) {
       return;
     }
@@ -811,25 +777,66 @@ export const App: React.FC = () => {
 
     activeDragIndexRef.current = index;
     draggedPieceRef.current = piece;
-
-    const FINGER_OFFSET_Y = 60;
-    const INNER_PADDING = 10;
-    const GAP = 4;
-    const layout = boardLayoutRef.current;
-    const usableWidth = layout ? layout.width - 2 * INNER_PADDING - (Board.SIZE - 1) * GAP : 320;
-    const cellSize = usableWidth / Board.SIZE;
-    const stride = cellSize + GAP;
-
-    const pieceWidthPx = piece.width * stride - GAP;
-    const pieceHeightPx = piece.height * stride - GAP;
-
-    const containerOffset = getContainerOffset();
-    const pieceLeftX = (startX - containerOffset.x) - pieceWidthPx / 2;
-    const pieceTopY = (startY - containerOffset.y - FINGER_OFFSET_Y) - pieceHeightPx / 2;
-
     setActiveDragIndex(index);
-    setDragLocation({ x: pieceLeftX, y: pieceTopY });
-  };
+
+    // Initial position calculation right at touch coordinates
+    updateDragPosition(startX, startY);
+
+    if (dragCleanupRef.current) {
+      dragCleanupRef.current();
+      dragCleanupRef.current = null;
+    }
+
+    const onTouchMove = (moveEvt: TouchEvent) => {
+      if (moveEvt.cancelable) {
+        moveEvt.preventDefault();
+      }
+      const touch = moveEvt.touches[0] || moveEvt.changedTouches[0];
+      if (touch) {
+        updateDragPosition(touch.pageX, touch.pageY);
+      }
+    };
+
+    const onTouchEnd = async () => {
+      cleanup();
+      await handleReleaseDrag();
+    };
+
+    const onMouseMove = (moveEvt: MouseEvent) => {
+      updateDragPosition(moveEvt.pageX, moveEvt.pageY);
+    };
+
+    const onMouseUp = async () => {
+      cleanup();
+      await handleReleaseDrag();
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      dragCleanupRef.current = null;
+    };
+
+    dragCleanupRef.current = cleanup;
+
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [getActiveEngine, handleReleaseDrag, updateDragPosition]);
+
+  useEffect(() => {
+    return () => {
+      if (dragCleanupRef.current) {
+        dragCleanupRef.current();
+        dragCleanupRef.current = null;
+      }
+    };
+  }, []);
 
   const activePiece = activeDragIndex !== null ? getActiveEngine().getTray()[activeDragIndex] : null;
 
@@ -915,7 +922,6 @@ export const App: React.FC = () => {
           <View
             ref={gameContainerRef}
             style={styles.gameContainer}
-            {...panResponder.panHandlers}
             onLayout={() => {
               if (gameContainerRef.current && gameContainerRef.current.measureInWindow) {
                 gameContainerRef.current.measureInWindow((x: number, y: number) => {

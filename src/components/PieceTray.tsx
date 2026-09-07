@@ -22,12 +22,12 @@ export const PieceTray: React.FC<PieceTrayProps> = ({
           style={styles.traySlot}
           onTouchStart={(e: any) => {
             if (piece && activeDragIndex === null) {
+              if (e.cancelable) e.preventDefault();
               const nativeEvt = e.nativeEvent || e;
               const touch = nativeEvt.touches?.[0] || nativeEvt.changedTouches?.[0] || nativeEvt;
               let pageX = touch?.pageX;
               let pageY = touch?.pageY;
 
-              // Fallback to slot center if touch page coordinates are missing
               if (typeof pageX !== 'number' || isNaN(pageX) || typeof pageY !== 'number' || isNaN(pageY)) {
                 if (e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function') {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -72,11 +72,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     height: 120,
     padding: 10,
-  },
+    userSelect: 'none',
+  } as any,
   traySlot: {
     flex: 1,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-  },
+    touchAction: 'none',
+    userSelect: 'none',
+    cursor: 'grab',
+  } as any,
 });
