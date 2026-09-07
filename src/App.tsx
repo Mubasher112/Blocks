@@ -387,9 +387,9 @@ export const App: React.FC = () => {
         const pieceWidthPx = piece.width * stride - GAP;
         const pieceHeightPx = piece.height * stride - GAP;
 
-        // Continuous top-left coordinate of floating piece in screen space
-        const pieceLeftX = targetX - pieceWidthPx / 2;
-        const pieceTopY = targetY - pieceHeightPx / 2;
+        // Continuous top-left coordinate of floating piece in container space
+        const pieceLeftX = (targetX - containerLayoutRef.current.x) - pieceWidthPx / 2;
+        const pieceTopY = (targetY - containerLayoutRef.current.y) - pieceHeightPx / 2;
 
         setDragLocation({ x: pieceLeftX, y: pieceTopY });
 
@@ -652,8 +652,8 @@ export const App: React.FC = () => {
     const pieceWidthPx = piece.width * stride - GAP;
     const pieceHeightPx = piece.height * stride - GAP;
 
-    const pieceLeftX = startX - pieceWidthPx / 2;
-    const pieceTopY = (startY - FINGER_OFFSET_Y) - pieceHeightPx / 2;
+    const pieceLeftX = (startX - containerLayoutRef.current.x) - pieceWidthPx / 2;
+    const pieceTopY = (startY - containerLayoutRef.current.y - FINGER_OFFSET_Y) - pieceHeightPx / 2;
 
     setActiveDragIndex(index);
     setDragLocation({ x: pieceLeftX, y: pieceTopY });
@@ -843,6 +843,26 @@ export const App: React.FC = () => {
               onGrantTouch={handleStartDrag}
             />
 
+            {/* Dragging Piece Floating Overlay */}
+            {activeDragIndex !== null && activePiece && dragLocation && (
+              <View
+                style={[
+                  styles.dragOverlay,
+                  {
+                    left: dragLocation.x,
+                    top: dragLocation.y,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                <PieceComponent
+                  piece={activePiece}
+                  isDragging={true}
+                  scale={1.0}
+                  cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
+                />
+              </View>
+            )}
 
             {/* Classic Mode Game Over Modal */}
             {screen === 'CLASSIC' && status === 'GAMEOVER' && (
@@ -991,26 +1011,6 @@ export const App: React.FC = () => {
           onCancel={() => setShowWildPicker(false)}
         />
 
-        {/* Global Root Floating Drag Overlay */}
-        {activeDragIndex !== null && activePiece && dragLocation && (
-          <View
-            style={[
-              styles.dragOverlay,
-              {
-                left: dragLocation.x,
-                top: dragLocation.y,
-              },
-            ]}
-            pointerEvents="none"
-          >
-            <PieceComponent
-              piece={activePiece}
-              isDragging={true}
-              scale={1.0}
-              cellSize={boardLayoutRef.current ? (boardLayoutRef.current.width - 20) / Board.SIZE : 36}
-            />
-          </View>
-        )}
           </>
         )}
       </SafeAreaView>
