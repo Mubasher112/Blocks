@@ -131,10 +131,11 @@ dist
 dist-ssr
 *.local
 
+# Build outputs
+dist/
+dist-ssr/
+
 # Android build outputs
 android/
-android/.gradle
-android/build
-android/app/build
-android/captures
+.gradle/
 !block-nova-debug.apk

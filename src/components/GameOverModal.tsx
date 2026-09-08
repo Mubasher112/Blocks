@@ -8,6 +8,8 @@ interface GameOverModalProps {
   highScore: number;
   isNewHighScore: boolean;
   stats: GameStats;
+  canContinue?: boolean;
+  onRewardedContinue?: () => void;
   onPlayAgain: () => void;
   onHome: () => void;
 }
@@ -17,6 +19,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   highScore,
   isNewHighScore,
   stats,
+  canContinue,
+  onRewardedContinue,
   onPlayAgain,
   onHome,
 }) => {
@@ -70,6 +74,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               </View>
             </View>
           </View>
+
+          {canContinue && onRewardedContinue && (
+            <TouchableOpacity style={styles.continueBtn} onPress={onRewardedContinue} activeOpacity={0.8}>
+              <Text style={styles.continueBtnText}>📺 WATCH AD TO CONTINUE (CLEAR 1 LINE)</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.modalActions}>
             <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={onHome} activeOpacity={0.7}>
@@ -215,5 +225,18 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '800',
     fontSize: 14,
+  },
+  continueBtn: {
+    width: '100%',
+    backgroundColor: '#FFB800',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  continueBtnText: {
+    color: '#0A0C14',
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
 });

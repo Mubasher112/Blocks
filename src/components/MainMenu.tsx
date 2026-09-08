@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Play, Trophy, Flame, Grid, Map, User, Users, Lock, Award, Gift } from 'lucide-react-native';
+import { Play, Trophy, Flame, Grid, Map, User, Users, Lock, Award, Gift, ShoppingBag } from 'lucide-react-native';
 import { GameStats } from '../game/GameEngine';
 import { PlayerProfile } from '../services/backend/AuthService';
 import { DailyChallenge, StreakInfo } from '../game/events/DailyChallengeTypes';
@@ -20,6 +20,7 @@ interface MainMenuProps {
   onPlayDaily: () => void;
   onOpenDailyReward: () => void;
   onOpenAchievements: () => void;
+  onOpenShop: () => void;
   onOpenProfile: () => void;
   onOpenLeaderboards: () => void;
   onOpenSocial: () => void;
@@ -49,6 +50,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         <View style={styles.coinBadge}>
           <Text style={styles.coinBadgeText}>🪙 {economy.coins.toLocaleString()}</Text>
         </View>
+
+        <TouchableOpacity style={styles.iconChip} onPress={onOpenShop} activeOpacity={0.8}>
+          <ShoppingBag size={18} color="#FFB800" />
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.iconChip} onPress={onOpenDailyReward} activeOpacity={0.8}>
           <Gift size={18} color="#00FF88" />

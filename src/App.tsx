@@ -31,7 +31,10 @@ import { SplashScreen } from './components/SplashScreen';
 
 import { DailyRewardModal } from './components/economy/DailyRewardModal';
 import { AchievementsScreen } from './components/economy/AchievementsScreen';
+import { ShopScreen } from './components/shop/ShopScreen';
 import { RewardToast, RewardToastData } from './components/economy/RewardToast';
+
+import { MonetizationService } from './services/monetization/MonetizationService';
 import { EconomyService } from './services/backend/EconomyService';
 import { AchievementService } from './services/backend/AchievementService';
 import { DailyRewardService } from './services/backend/DailyRewardService';
@@ -77,7 +80,8 @@ type ScreenState =
   | 'DAILY_GAME'
   | 'LEADERBOARDS'
   | 'SOCIAL'
-  | 'ACHIEVEMENTS';
+  | 'ACHIEVEMENTS'
+  | 'SHOP';
 
 export const App: React.FC = () => {
   // Engine Instances
@@ -114,6 +118,12 @@ export const App: React.FC = () => {
   const [showDailyRewardModal, setShowDailyRewardModal] = useState<boolean>(false);
   const [achievementsList, setAchievementsList] = useState<{ config: AchievementConfig; state: PlayerAchievementState }[]>([]);
   const [activeToast, setActiveToast] = useState<RewardToastData | null>(null);
+
+  // Monetization States
+  const [hasRemoveAds, setHasRemoveAds] = useState<boolean>(false);
+  const [canWatchCoinAd, setCanWatchCoinAd] = useState<boolean>(true);
+  const [freeCoinAdCount, setFreeCoinAdCount] = useState<number>(0);
+  const [canContinueClassic, setCanContinueClassic] = useState<boolean>(true);
   const [adventureProgress, setAdventureProgress] = useState<AdventureProgress>(DEFAULT_ADVENTURE_PROGRESS);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
@@ -247,11 +257,18 @@ export const App: React.FC = () => {
       const achievements = await AchievementService.getAchievements(guestPlayer.id);
 
       setDailyChallenge(challenge);
+      const removeAds = await MonetizationService.entitlements.hasEntitlement(guestPlayer.id, 'REMOVE_ADS');
+      const coinAdAllowed = await MonetizationService.ads.canWatchRewardedCoinAd(guestPlayer.id);
+      const coinAdCount = await MonetizationService.ads.getDailyRewardedCoinAdsCount(guestPlayer.id);
+
       setDailyStreak(streak);
       setEconomy(econ);
       setCanClaimDailyReward(dailyRewardClaim.canClaim);
       setDailyRewardDay(dailyRewardClaim.todayDay);
       setAchievementsList(achievements);
+      setHasRemoveAds(removeAds);
+      setCanWatchCoinAd(coinAdAllowed);
+      setFreeCoinAdCount(coinAdCount);
 
       // Perform initial cloud sync & pending offline submissions sync
       const syncRes = await CloudSyncService.sync(guestPlayer.id);
@@ -321,8 +338,12 @@ export const App: React.FC = () => {
   // Start Classic Game
   const handleStartClassic = async () => {
     audio.playButtonClick();
+    if (player) {
+      await MonetizationService.ads.showInterstitialIfEligible(player.id);
+    }
     await StorageService.clearActiveGame();
     classicEngineRef.current.startNewGame();
+    setCanContinueClassic(true);
     setScreen('CLASSIC');
     await syncEngineState();
   };
@@ -736,6 +757,17 @@ export const App: React.FC = () => {
             onPlayAdventure={() => setScreen('ADVENTURE_MAP')}
             onPlayDaily={() => setScreen('DAILY_SCREEN')}
             onOpenDailyReward={() => setShowDailyRewardModal(true)}
+            onOpenShop={async () => {
+              if (player) {
+                const removeAds = await MonetizationService.entitlements.hasEntitlement(player.id, 'REMOVE_ADS');
+                const allowed = await MonetizationService.ads.canWatchRewardedCoinAd(player.id);
+                const count = await MonetizationService.ads.getDailyRewardedCoinAdsCount(player.id);
+                setHasRemoveAds(removeAds);
+                setCanWatchCoinAd(allowed);
+                setFreeCoinAdCount(count);
+              }
+              setScreen('SHOP');
+            }}
             onOpenAchievements={async () => {
               if (player) {
                 const achs = await AchievementService.getAchievements(player.id);
@@ -746,6 +778,51 @@ export const App: React.FC = () => {
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenLeaderboards={() => setScreen('LEADERBOARDS')}
             onOpenSocial={() => setScreen('SOCIAL')}
+          />
+        )}
+
+        {screen === 'SHOP' && (
+          <ShopScreen
+            products={MonetizationService.purchases.getProducts()}
+            coins={economy.coins}
+            hasRemoveAds={hasRemoveAds}
+            canWatchCoinAd={canWatchCoinAd}
+            freeCoinAdCount={freeCoinAdCount}
+            onBuyProduct={async (productId) => {
+              if (player) {
+                const res = await MonetizationService.purchases.purchaseProduct(player.id, productId);
+                if (res.success) {
+                  const updatedEcon = await EconomyService.getEconomy(player.id);
+                  const removeAds = await MonetizationService.entitlements.hasEntitlement(player.id, 'REMOVE_ADS');
+                  setEconomy(updatedEcon);
+                  setHasRemoveAds(removeAds);
+                  setActiveToast({ id: Date.now(), title: 'PURCHASE COMPLETE!' });
+                }
+              }
+            }}
+            onRestorePurchases={async () => {
+              if (player) {
+                const res = await MonetizationService.purchases.restorePurchases(player.id);
+                const removeAds = await MonetizationService.entitlements.hasEntitlement(player.id, 'REMOVE_ADS');
+                setHasRemoveAds(removeAds);
+                setActiveToast({ id: Date.now(), title: res.message });
+              }
+            }}
+            onWatchFreeCoinAd={async () => {
+              if (player) {
+                const res = await MonetizationService.ads.showRewardedCoinAd(player.id);
+                if (res.result === 'COMPLETED') {
+                  const updatedEcon = await EconomyService.getEconomy(player.id);
+                  const allowed = await MonetizationService.ads.canWatchRewardedCoinAd(player.id);
+                  const count = await MonetizationService.ads.getDailyRewardedCoinAdsCount(player.id);
+                  setEconomy(updatedEcon);
+                  setCanWatchCoinAd(allowed);
+                  setFreeCoinAdCount(count);
+                  setActiveToast({ id: Date.now(), title: 'FREE COINS GRANTED!', coins: res.coinsGranted });
+                }
+              }
+            }}
+            onBack={() => setScreen('MENU')}
           />
         )}
 
@@ -982,6 +1059,21 @@ export const App: React.FC = () => {
                 highScore={highScore}
                 isNewHighScore={score >= highScore && score > 0}
                 stats={stats}
+                canContinue={canContinueClassic}
+                onRewardedContinue={async () => {
+                  setCanContinueClassic(false);
+                  const adRes = await MonetizationService.ads.showRewardedContinueAd();
+                  if (adRes.result === 'COMPLETED') {
+                    // Clear bottom row to give player room to continue
+                    const board = classicEngineRef.current.getBoard();
+                    for (let c = 0; c < Board.SIZE; c++) {
+                      board.setCellState(Board.SIZE - 1, c, 'EMPTY', null);
+                    }
+                    classicEngineRef.current.getBoard();
+                    setStatus('PLAYING');
+                    await syncEngineState();
+                  }
+                }}
                 onPlayAgain={handleStartClassic}
                 onHome={() => setScreen('MENU')}
               />
